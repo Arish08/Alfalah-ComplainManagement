@@ -1,196 +1,224 @@
-# Banking Platform - Complaint Management Full Stack
+# Banking Platform — Tomorrow Setup Guide
 
-This repository now contains the working base for a dynamic complaint/workflow platform:
+Use this guide after cloning the project onto the office laptop.
 
-- **Frontend:** React + JavaScript + Vite + React Flow (`@xyflow/react`)
-- **Backend:** ASP.NET Core / .NET 10 Web API
-- **Database:** SQL Server + Entity Framework Core 10 migrations
-- **Workflow runtime:** SQL-backed dynamic workflow runtime behind `IWorkflowRuntime`
-- **Elsa:** separate Elsa host included so the runtime can be adapted to Elsa without changing React or complaint controllers
-- **Theme:** red/white CRM-style UI
+> **Current stack:** React + Vite, ASP.NET Core / .NET 10, Entity Framework Core, SQL Server, Elsa Workflow Host.
 
-The central rule is that workflows are **data**, not hard-coded C# classes. Department admins build nodes and transitions in the visual designer. Complaints bind to a published workflow version and keep that version for their lifetime.
+---
 
-## Folder structure
+# 1. Clone the project
 
-```text
-banking-platform-fullstack/
-├─ frontend/                         React/Vite UI
-│  ├─ src/
-│  │  ├─ api/                        API client + dev identity header
-│  │  ├─ auth/                       Local development user switching
-│  │  ├─ components/                 CRM layout/shared UI
-│  │  ├─ pages/                      Dashboard, complaints, queue, designer
-│  │  ├─ workflow/                   React Flow custom node
-│  │  └─ styles/                     Red/white CRM theme
-│  ├─ package.json
-│  └─ vite.config.js                 /api -> http://localhost:5080
-├─ src/
-│  ├─ BankingPlatform.Domain/
-│  ├─ BankingPlatform.Application/
-│  ├─ BankingPlatform.Infrastructure/
-│  ├─ BankingPlatform.Api/
-│  └─ BankingPlatform.WorkflowHost/
-├─ database/                         Reference SQL scripts
-├─ scripts/                          Windows helper scripts
-└─ setup.ps1
-```
-
-## Features implemented
-
-### Complaint Management
-- Log complaint with category, subject, description, customer reference and priority.
-- ATM, Alfa Mall and Transaction categories are seeded.
-- Creating a complaint automatically starts the currently published workflow for its category.
-- Complaint detail page shows a full audit timeline.
-- Complaint register supports search and filtering.
-
-### Role dashboards / work queue
-- Unit Head, Team Lead and Officer each see tasks in their own queue.
-- Tasks may be role-queue tasks or assigned to a specific user.
-- Team Lead can assign the next Officer when the target workflow node uses `assignmentMode = specific`.
-- SLA deadline and overdue state are shown in the frontend.
-- Team Lead / Unit Head can reassign an open task.
-
-### Dynamic workflow designer
-- Drag-and-drop node canvas using React Flow.
-- Human task, Start and End nodes.
-- Role, SLA hours, escalation role and assignment mode are editable per human task.
-- Connect nodes with transitions.
-- Transition label and outcome key are editable.
-- Draft / Published / Archived version model.
-- Published versions are immutable; create a new version to change them.
-- Backend validates graph rules before saving/publishing.
-
-### Seeded local users
-- Unit Head + DeptAdmin: `11111111-1111-1111-1111-111111111111`
-- Team Lead: `22222222-2222-2222-2222-222222222222`
-- Officer One: `33333333-3333-3333-3333-333333333333`
-- Officer Two: `44444444-4444-4444-4444-444444444444`
-
-The top-right dropdown switches these users in development. The React API client sends `X-User-Id`. Replace this with bank SSO / Entra ID before production.
-
-# Windows setup from zero
-
-## 1. Install prerequisites
-
-Install:
-- .NET 10 SDK
-- Node.js 22 LTS recommended
-- SQL Server Developer/Express/LocalDB
-- SSMS is optional but useful
-
-Verify:
+Open **PowerShell**:
 
 ```powershell
-dotnet --version
+cd C:\
+mkdir Projects -ErrorAction SilentlyContinue
+cd C:\Projects
+
+git clone YOUR_GITHUB_REPO_URL
+cd banking-platform-fullstack
+```
+
+If the repository was already cloned:
+
+```powershell
+cd C:\Projects\banking-platform-fullstack
+git pull
+```
+
+---
+
+# 2. Check required software
+
+## .NET
+
+```powershell
+dotnet --list-sdks
+```
+
+The project currently targets **.NET 10**.
+
+If you only have .NET 8, install .NET 10 if permitted:
+
+```powershell
+winget install Microsoft.DotNet.SDK.10
+```
+
+Close and reopen PowerShell, then check again:
+
+```powershell
+dotnet --list-sdks
+```
+
+It is fine to have both:
+
+```text
+8.0.xxx
+10.0.xxx
+```
+
+## Node / npm
+
+```powershell
 node --version
 npm --version
 ```
 
-## 2. Extract and open the project
+If Node is missing, install the approved Node.js version for the office machine. Node 22 is a good choice for this project.
+
+## Git
 
 ```powershell
-cd C:\Projects\banking-platform-fullstack
+git --version
 ```
 
-Optional helper setup:
+---
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\setup.ps1
-```
+# 3. Restore and build the backend
 
-Or manually:
-
-```powershell
-dotnet new sln -n BankingPlatform
-dotnet sln BankingPlatform.sln add .\src\BankingPlatform.Domain\BankingPlatform.Domain.csproj
-dotnet sln BankingPlatform.sln add .\src\BankingPlatform.Application\BankingPlatform.Application.csproj
-dotnet sln BankingPlatform.sln add .\src\BankingPlatform.Infrastructure\BankingPlatform.Infrastructure.csproj
-dotnet sln BankingPlatform.sln add .\src\BankingPlatform.Api\BankingPlatform.Api.csproj
-dotnet sln BankingPlatform.sln add .\src\BankingPlatform.WorkflowHost\BankingPlatform.WorkflowHost.csproj
-dotnet restore .\BankingPlatform.sln
-
-cd .\frontend
-npm install
-cd ..
-```
-
-## 3. Configure SQL Server
-
-Edit:
+From:
 
 ```text
-src\BankingPlatform.Api\appsettings.json
+C:\Projects\banking-platform-fullstack
 ```
 
-Default SQL Server instance example:
-
-```json
-"BankingDatabase": "Server=localhost;Database=BankingPlatform;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-```
-
-SQL Express example:
-
-```json
-"BankingDatabase": "Server=.\\SQLEXPRESS;Database=BankingPlatform;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-```
-
-LocalDB example:
-
-```json
-"BankingDatabase": "Server=(localdb)\\MSSQLLocalDB;Database=BankingPlatform;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-```
-
-## 4. Install the EF Core CLI
-
-Run once on your machine:
+run:
 
 ```powershell
-dotnet tool install --global dotnet-ef --version 10.0.*
+dotnet restore
+dotnet build
 ```
 
-If it already exists:
+You want:
+
+```text
+Build succeeded.
+```
+
+`NU1903` messages are package vulnerability warnings. They should be reviewed/upgraded, but a warning by itself is different from a compiler error.
+
+If the build fails, use:
 
 ```powershell
-dotnet tool update --global dotnet-ef --version 10.0.*
+dotnet build 2>&1 | Select-String -Pattern "error CS|error NETSDK|error MSB|error NU"
 ```
 
-Verify:
+---
+
+# 4. Check Entity Framework CLI
 
 ```powershell
 dotnet ef --version
 ```
 
-## 5. Create the FIRST migration
-
-The ZIP intentionally contains the model but not generated migration files, because the generated migration should match the SDK/EF tooling on the development machine.
-
-From repository root, run **once**:
+If it is not installed:
 
 ```powershell
-dotnet ef migrations add InitialBusinessSchema `
-  --project .\src\BankingPlatform.Infrastructure `
-  --startup-project .\src\BankingPlatform.Api `
-  --output-dir Persistence\Migrations
+dotnet tool install --global dotnet-ef --version 10.0.3
 ```
 
-This generates:
+If an older version is installed:
+
+```powershell
+dotnet tool update --global dotnet-ef --version 10.0.3
+```
+
+Check again:
+
+```powershell
+dotnet ef --version
+```
+
+---
+
+# 5. Get the office SQL Server details
+
+You need:
 
 ```text
-src\BankingPlatform.Infrastructure\Persistence\Migrations\
+SQL Server / instance name
+SQL username
+SQL password
 ```
 
-You can verify it:
+Because the office uses **SQL Server Authentication**, do not use:
+
+```text
+Trusted_Connection=True
+```
+
+Connect through SSMS and run:
+
+```sql
+SELECT
+    @@SERVERNAME AS ServerName,
+    SERVERPROPERTY('MachineName') AS MachineName,
+    SERVERPROPERTY('InstanceName') AS InstanceName;
+```
+
+Keep the exact server/instance name.
+
+---
+
+# 6. Configure the API SQL connection
+
+## Recommended: .NET User Secrets
+
+Do not save the real SQL password in GitHub.
+
+From the repository root:
 
 ```powershell
-dotnet ef migrations list `
-  --project .\src\BankingPlatform.Infrastructure `
-  --startup-project .\src\BankingPlatform.Api
+dotnet user-secrets init --project .\src\BankingPlatform.Api
 ```
 
-## 6. Create/update the database
+Then:
+
+```powershell
+dotnet user-secrets set `
+  "ConnectionStrings:BankingDatabase" `
+  "Server=YOUR_SQL_SERVER;Database=BankingPlatform;User Id=YOUR_SQL_USERNAME;Password=YOUR_SQL_PASSWORD;TrustServerCertificate=True;MultipleActiveResultSets=true" `
+  --project .\src\BankingPlatform.Api
+```
+
+Check that it was saved:
+
+```powershell
+dotnet user-secrets list --project .\src\BankingPlatform.Api
+```
+
+### Example
+
+If SSMS server is:
+
+```text
+OFFICE-SQL\DEV
+```
+
+the command is:
+
+```powershell
+dotnet user-secrets set `
+  "ConnectionStrings:BankingDatabase" `
+  "Server=OFFICE-SQL\DEV;Database=BankingPlatform;User Id=YOUR_USERNAME;Password=YOUR_PASSWORD;TrustServerCertificate=True;MultipleActiveResultSets=true" `
+  --project .\src\BankingPlatform.Api
+```
+
+---
+
+# 7. Create/update the BankingPlatform database
+
+The EF migration files should already be in GitHub.
+
+## DO NOT create InitialBusinessSchema again
+
+Do **not** run:
+
+```text
+dotnet ef migrations add InitialBusinessSchema
+```
+
+Instead run the existing migrations:
 
 ```powershell
 dotnet ef database update `
@@ -198,26 +226,566 @@ dotnet ef database update `
   --startup-project .\src\BankingPlatform.Api
 ```
 
-The database will be created if it does not exist. When the API starts in Development it also calls `Database.MigrateAsync()` and then seeds departments, categories, users and demo workflows.
+Expected:
 
-Do not separately run `database/001_business_schema.sql` if you are using EF migrations against the same database; that file is a reference/manual schema alternative.
-
-## 7. Run the backend API
-
-Terminal 1, repository root:
-
-```powershell
-dotnet run --project .\src\BankingPlatform.Api --urls http://localhost:5080
+```text
+Build started...
+Build succeeded.
+...
+Done.
 ```
 
-The frontend is configured to proxy `/api` calls to this URL.
+Then refresh **Databases** in SSMS.
 
-## 8. Run the React frontend
+You should see:
 
-Terminal 2:
+```text
+BankingPlatform
+```
+
+Verify the migration:
+
+```sql
+USE BankingPlatform;
+
+SELECT *
+FROM dbo.__EFMigrationsHistory;
+```
+
+You can also check the main tables:
+
+```sql
+USE BankingPlatform;
+
+SELECT TABLE_NAME
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_TYPE = 'BASE TABLE'
+ORDER BY TABLE_NAME;
+```
+
+---
+
+# 8. If SQL says you cannot create the database
+
+This is likely an office SQL permission issue.
+
+Ask the DBA to create:
+
+```text
+BankingPlatform
+```
+
+and grant your SQL login sufficient permissions to run the application's migrations.
+
+If Elsa will use its own SQL database, also request:
+
+```text
+BankingPlatformElsa
+```
+
+After the DBA creates `BankingPlatform`, rerun:
 
 ```powershell
-cd .\frontend
+dotnet ef database update `
+  --project .\src\BankingPlatform.Infrastructure `
+  --startup-project .\src\BankingPlatform.Api
+```
+
+---
+
+# 9. Run the main backend
+
+Open **Terminal 1**.
+
+```powershell
+cd C:\Projects\banking-platform-fullstack
+```
+
+Set development mode:
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT="Development"
+```
+
+Because the SQL connection is stored in User Secrets, you do not need to type the password again.
+
+Run:
+
+```powershell
+dotnet run `
+  --project .\src\BankingPlatform.Api\BankingPlatform.Api.csproj `
+  --urls http://localhost:5080
+```
+
+You want:
+
+```text
+Now listening on: http://localhost:5080
+```
+
+**Leave Terminal 1 running.**
+
+---
+
+# 10. Configure Elsa SQL connection
+
+Open **Terminal 2**.
+
+```powershell
+cd C:\Projects\banking-platform-fullstack
+```
+
+Initialize WorkflowHost secrets:
+
+```powershell
+dotnet user-secrets init --project .\src\BankingPlatform.WorkflowHost
+```
+
+Set the Elsa database connection:
+
+```powershell
+dotnet user-secrets set `
+  "ConnectionStrings:BankingDatabase" `
+  "Server=YOUR_SQL_SERVER;Database=BankingPlatformElsa;User Id=YOUR_SQL_USERNAME;Password=YOUR_SQL_PASSWORD;TrustServerCertificate=True;MultipleActiveResultSets=true" `
+  --project .\src\BankingPlatform.WorkflowHost
+```
+
+Check:
+
+```powershell
+dotnet user-secrets list --project .\src\BankingPlatform.WorkflowHost
+```
+
+---
+
+# 11. Run Elsa WorkflowHost
+
+Still in Terminal 2:
+
+```powershell
+dotnet run `
+  --project .\src\BankingPlatform.WorkflowHost\BankingPlatform.WorkflowHost.csproj `
+  --urls http://localhost:5090
+```
+
+You want:
+
+```text
+Now listening on: http://localhost:5090
+```
+
+Test:
+
+```text
+http://localhost:5090/health
+```
+
+**Leave Terminal 2 running.**
+
+> The current complaint workflow execution is still handled by `SqlWorkflowRuntime`. Elsa is the separate workflow-engine foundation for the next stage of the project.
+
+---
+
+# 12. Install frontend dependencies
+
+Open **Terminal 3**:
+
+```powershell
+cd C:\Projects\banking-platform-fullstack\frontend
+```
+
+After a fresh clone:
+
+```powershell
+npm install
+```
+
+`node_modules` is intentionally not stored in GitHub. `npm install` recreates it from `package.json` / `package-lock.json`.
+
+---
+
+# 13. Run React
+
+Still in Terminal 3:
+
+```powershell
+npm run dev
+```
+
+You should see something similar to:
+
+```text
+Local: http://localhost:5173/
+```
+
+Open:
+
+```text
+http://localhost:5173
+```
+
+---
+
+# 14. What should now be running?
+
+```text
+React Frontend
+http://localhost:5173
+        │
+        ▼
+BankingPlatform.Api
+http://localhost:5080
+        │
+        ▼
+SQL Server
+BankingPlatform
+
+
+Elsa WorkflowHost
+http://localhost:5090
+        │
+        ▼
+SQL Server
+BankingPlatformElsa
+```
+
+---
+
+# 15. Normal daily startup after first setup
+
+After everything has been installed/configured once, you do **not** need to run migrations, `npm install`, or User Secrets every morning.
+
+## Terminal 1 — API
+
+```powershell
+cd C:\Projects\banking-platform-fullstack
+
+$env:ASPNETCORE_ENVIRONMENT="Development"
+
+dotnet run `
+  --project .\src\BankingPlatform.Api\BankingPlatform.Api.csproj `
+  --urls http://localhost:5080
+```
+
+## Terminal 2 — Elsa
+
+```powershell
+cd C:\Projects\banking-platform-fullstack
+
+dotnet run `
+  --project .\src\BankingPlatform.WorkflowHost\BankingPlatform.WorkflowHost.csproj `
+  --urls http://localhost:5090
+```
+
+## Terminal 3 — React
+
+```powershell
+cd C:\Projects\banking-platform-fullstack\frontend
+
+npm run dev
+```
+
+Then open:
+
+```text
+http://localhost:5173
+```
+
+---
+
+# 16. Troubleshooting — problems encountered during initial setup
+
+## A. EF says: "Build failed. Use dotnet build to see the errors."
+
+Run:
+
+```powershell
+dotnet build
+```
+
+Or API only:
+
+```powershell
+dotnet build .\src\BankingPlatform.Api\BankingPlatform.Api.csproj
+```
+
+Infrastructure only:
+
+```powershell
+dotnet build .\src\BankingPlatform.Infrastructure\BankingPlatform.Infrastructure.csproj
+```
+
+Elsa only:
+
+```powershell
+dotnet build .\src\BankingPlatform.WorkflowHost\BankingPlatform.WorkflowHost.csproj
+```
+
+Filter errors:
+
+```powershell
+dotnet build 2>&1 | Select-String -Pattern "error CS|error NETSDK|error MSB|error NU"
+```
+
+---
+
+## B. EF says BankingPlatform.Api does not reference Microsoft.EntityFrameworkCore.Design
+
+Do **not** immediately start changing packages if the repository contains today's fixed `.csproj` files.
+
+First run:
+
+```powershell
+git status
+dotnet restore
+dotnet build
+```
+
+Then:
+
+```powershell
+dotnet ef database update `
+  --project .\src\BankingPlatform.Infrastructure `
+  --startup-project .\src\BankingPlatform.Api
+```
+
+The fixed package references should already come from GitHub.
+
+---
+
+## C. SQL Server: error 40 / server not found
+
+Check the exact SQL Server instance in SSMS:
+
+```sql
+SELECT @@SERVERNAME;
+```
+
+Confirm:
+
+- server name
+- instance name
+- SQL username
+- password
+- database permissions
+
+Then update User Secrets:
+
+```powershell
+dotnet user-secrets set `
+  "ConnectionStrings:BankingDatabase" `
+  "Server=EXACT_SERVER_NAME;Database=BankingPlatform;User Id=USERNAME;Password=PASSWORD;TrustServerCertificate=True;MultipleActiveResultSets=true" `
+  --project .\src\BankingPlatform.Api
+```
+
+Retry:
+
+```powershell
+dotnet ef database update `
+  --project .\src\BankingPlatform.Infrastructure `
+  --startup-project .\src\BankingPlatform.Api
+```
+
+---
+
+## D. EF reports SQL Server multiple cascade paths
+
+The fix for this was already made in the project model/migration configuration.
+
+Do **not** recreate the old migration.
+
+After cloning today's final code, use:
+
+```powershell
+dotnet ef database update `
+  --project .\src\BankingPlatform.Infrastructure `
+  --startup-project .\src\BankingPlatform.Api
+```
+
+---
+
+## E. Elsa reports an EF Core package downgrade
+
+Today's corrected package versions should be committed in:
+
+```text
+src/BankingPlatform.WorkflowHost/BankingPlatform.WorkflowHost.csproj
+```
+
+First:
+
+```powershell
+dotnet restore
+dotnet build .\src\BankingPlatform.WorkflowHost\BankingPlatform.WorkflowHost.csproj
+```
+
+Do not downgrade packages back to the earlier versions.
+
+---
+
+## F. Check the database tables
+
+In SSMS:
+
+```sql
+USE BankingPlatform;
+
+SELECT TABLE_NAME
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_TYPE = 'BASE TABLE'
+ORDER BY TABLE_NAME;
+```
+
+---
+
+## G. Check development users
+
+```sql
+USE BankingPlatform;
+
+SELECT *
+FROM dbo.Users;
+```
+
+---
+
+## H. Check Officer users/memberships
+
+```sql
+USE BankingPlatform;
+
+SELECT
+    u.Id,
+    u.EmployeeCode,
+    u.DisplayName,
+    u.IsActive,
+    dm.DepartmentId,
+    dm.RoleCode
+FROM dbo.DepartmentMemberships dm
+INNER JOIN dbo.Users u
+    ON u.Id = dm.UserId
+WHERE dm.RoleCode = 'Officer';
+```
+
+You should have Officer users available for the appropriate department.
+
+---
+
+# 17. After pulling future changes
+
+```powershell
+cd C:\Projects\banking-platform-fullstack
+
+git pull
+dotnet restore
+dotnet build
+```
+
+If new EF migrations were added:
+
+```powershell
+dotnet ef database update `
+  --project .\src\BankingPlatform.Infrastructure `
+  --startup-project .\src\BankingPlatform.Api
+```
+
+If frontend packages changed:
+
+```powershell
+cd frontend
+npm install
+```
+
+Then start the three applications normally.
+
+---
+
+# 18. If you change the EF model in the future
+
+Example: a new `ComplaintAttachments` entity.
+
+Create a NEW migration:
+
+```powershell
+dotnet ef migrations add AddComplaintAttachments `
+  --project .\src\BankingPlatform.Infrastructure `
+  --startup-project .\src\BankingPlatform.Api `
+  --output-dir Persistence\Migrations
+```
+
+Apply it:
+
+```powershell
+dotnet ef database update `
+  --project .\src\BankingPlatform.Infrastructure `
+  --startup-project .\src\BankingPlatform.Api
+```
+
+Then commit the migration files:
+
+```powershell
+git add .
+git commit -m "Add complaint attachments"
+git push
+```
+
+Do not repeatedly recreate `InitialBusinessSchema`.
+
+---
+
+# 19. Quick copy/paste checklist
+
+Fresh clone:
+
+```powershell
+cd C:\Projects
+git clone YOUR_GITHUB_REPO_URL
+cd banking-platform-fullstack
+
+dotnet --list-sdks
+node --version
+npm --version
+
+dotnet restore
+dotnet build
+
+dotnet ef --version
+```
+
+Configure API SQL credentials:
+
+```powershell
+dotnet user-secrets init --project .\src\BankingPlatform.Api
+
+dotnet user-secrets set `
+  "ConnectionStrings:BankingDatabase" `
+  "Server=YOUR_SQL_SERVER;Database=BankingPlatform;User Id=YOUR_SQL_USERNAME;Password=YOUR_SQL_PASSWORD;TrustServerCertificate=True;MultipleActiveResultSets=true" `
+  --project .\src\BankingPlatform.Api
+```
+
+Apply database:
+
+```powershell
+dotnet ef database update `
+  --project .\src\BankingPlatform.Infrastructure `
+  --startup-project .\src\BankingPlatform.Api
+```
+
+Run API:
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT="Development"
+
+dotnet run `
+  --project .\src\BankingPlatform.Api\BankingPlatform.Api.csproj `
+  --urls http://localhost:5080
+```
+
+New terminal — React:
+
+```powershell
+cd C:\Projects\banking-platform-fullstack\frontend
+npm install
 npm run dev
 ```
 
@@ -227,73 +795,44 @@ Open:
 http://localhost:5173
 ```
 
-## 9. Optional Elsa host
-
-The current complaint UI/API runs through the durable SQL workflow runtime behind `IWorkflowRuntime`. The Elsa host is already separated so it can replace that runtime adapter later without changing the frontend contract.
-
-To start the Elsa host separately:
+New terminal — Elsa, if needed:
 
 ```powershell
-dotnet run --project .\src\BankingPlatform.WorkflowHost
+cd C:\Projects\banking-platform-fullstack
+
+dotnet user-secrets init --project .\src\BankingPlatform.WorkflowHost
+
+dotnet user-secrets set `
+  "ConnectionStrings:BankingDatabase" `
+  "Server=YOUR_SQL_SERVER;Database=BankingPlatformElsa;User Id=YOUR_SQL_USERNAME;Password=YOUR_SQL_PASSWORD;TrustServerCertificate=True;MultipleActiveResultSets=true" `
+  --project .\src\BankingPlatform.WorkflowHost
+
+dotnet run `
+  --project .\src\BankingPlatform.WorkflowHost\BankingPlatform.WorkflowHost.csproj `
+  --urls http://localhost:5090
 ```
 
-## Future database changes
+---
 
-Whenever you change an entity/model:
+# 20. Important security rules
 
-```powershell
-dotnet ef migrations add DescribeYourChange `
-  --project .\src\BankingPlatform.Infrastructure `
-  --startup-project .\src\BankingPlatform.Api `
-  --output-dir Persistence\Migrations
+Never push:
 
-dotnet ef database update `
-  --project .\src\BankingPlatform.Infrastructure `
-  --startup-project .\src\BankingPlatform.Api
-```
+- SQL passwords
+- SQL usernames if considered sensitive internally
+- SMTP passwords
+- API keys
+- JWT signing secrets
+- certificates/private keys
+- bank credentials
+- `.env` files containing secrets
 
-Examples:
+The project does **not currently require a `.env` file** for the setup described here.
 
-```powershell
-dotnet ef migrations add AddComplaintAttachments --project .\src\BankingPlatform.Infrastructure --startup-project .\src\BankingPlatform.Api --output-dir Persistence\Migrations
-dotnet ef database update --project .\src\BankingPlatform.Infrastructure --startup-project .\src\BankingPlatform.Api
-```
+Use:
 
-## Test the complete demo flow
+- `.NET User Secrets` for development credentials
+- environment variables where appropriate
+- the bank's approved secrets manager for deployed environments
 
-1. Start API and frontend.
-2. In the top-right development user dropdown choose **Unit Head / Dept Admin**.
-3. Open **Workflow Designer** and inspect ATM / Alfa Mall / Transaction workflows.
-4. Go to **Complaints -> Log complaint** and choose ATM Issue.
-5. The ATM complaint enters the Unit Head queue.
-6. Open **My Work Queue** as Unit Head and complete `Forward to team lead`.
-7. Switch to **Team Lead**.
-8. Open the task and choose `Assign officer`; the UI requires Officer One or Officer Two because the target node is configured for specific-user assignment.
-9. Switch to that Officer.
-10. The Officer task shows its SLA countdown (ATM uses 48 hours).
-11. Choose `Resolve complaint`.
-12. Open the complaint to see the complete workflow timeline.
-
-## API endpoints used by React
-
-```text
-GET    /api/me
-GET    /api/reference/departments
-GET    /api/reference/categories
-GET    /api/reference/users
-GET    /api/complaints
-POST   /api/complaints
-GET    /api/complaints/{id}
-GET    /api/workflow-tasks/my-bucket
-GET    /api/workflow-tasks/{taskId}/actions
-POST   /api/workflow-tasks/{taskId}/complete
-POST   /api/workflow-tasks/{taskId}/reassign
-GET    /api/workflow-definitions
-GET    /api/workflow-definitions/{id}
-POST   /api/workflow-definitions
-PUT    /api/workflow-definitions/{id}
-POST   /api/workflow-definitions/{id}/publish
-POST   /api/workflow-definitions/{id}/new-version
-```
-#   A l f a l a h - C o m p l a i n M a n a g e m e n t  
- 
+The development `X-User-Id` authentication/user switcher is for local development only and must be replaced with the bank's real authentication/authorization solution before production.
