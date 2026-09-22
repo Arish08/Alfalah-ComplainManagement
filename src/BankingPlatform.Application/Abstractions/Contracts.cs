@@ -36,6 +36,9 @@ public interface IWorkflowTaskService
     Task<IReadOnlyList<WorkflowTaskActionDto>> GetActionsAsync(Guid taskId, CancellationToken cancellationToken);
     Task CompleteAsync(Guid taskId, CompleteWorkflowTaskRequest request, CancellationToken cancellationToken);
     Task ReassignAsync(Guid taskId, ReassignWorkflowTaskRequest request, CancellationToken cancellationToken);
+    Task<WorkflowTaskFormDto> GetFormAsync(
+    Guid taskId,
+    CancellationToken cancellationToken);
 }
 
 public interface IWorkflowRuntime

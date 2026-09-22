@@ -5,6 +5,7 @@ import PageHeader from '../components/PageHeader.jsx'
 import ErrorBanner from '../components/ErrorBanner.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import { formatDate, relativeSla } from '../constants.js'
+import WorkflowTaskFields from '../components/WorkflowTaskFields.jsx'
 
 export default function MyTasksPage({ navigate }) {
   const { userId, roles } = useDevUser()
@@ -27,6 +28,10 @@ export default function MyTasksPage({ navigate }) {
   const [reassigning, setReassigning] = useState(false)
   const [reassignUsers, setReassignUsers] = useState([])
   const [reassignUserId, setReassignUserId] = useState('')
+
+  const [taskForm, setTaskForm] = useState(null)
+
+const [fieldValues, setFieldValues] = useState({})
 
   // =========================================================
   // LOAD MY WORK QUEUE
@@ -163,6 +168,8 @@ export default function MyTasksPage({ navigate }) {
     setAssigneeId('')
 
     setComment('')
+    setTaskForm(null)
+setFieldValues({})
 
     setReassigning(false)
     setReassignUsers([])
@@ -173,17 +180,26 @@ export default function MyTasksPage({ navigate }) {
     try {
       console.log('OPENING TASK:', task)
 
-      const availableActions = await api(
-        `/workflow-tasks/${task.id}/actions`
-      )
+     const [
+  availableActions,
+  form,
+] = await Promise.all([
+  api(
+    `/workflow-tasks/${task.id}/actions`
+  ),
 
-      console.log('TASK ACTIONS:', availableActions)
+  api(
+    `/workflow-tasks/${task.id}/form`
+  ),
+])
 
-      setActions(
-        Array.isArray(availableActions)
-          ? availableActions
-          : []
-      )
+setActions(
+  Array.isArray(availableActions)
+    ? availableActions
+    : []
+)
+
+setTaskForm(form)
     } catch (err) {
       console.error('FAILED TO LOAD TASK ACTIONS:', err)
       setError(err.message)
@@ -212,11 +228,26 @@ export default function MyTasksPage({ navigate }) {
     setError('')
 
     try {
-      const payload = {
-        outcomeKey: selectedAction.outcomeKey,
-        nextAssigneeUserId: assigneeId || null,
-        comment: comment.trim() || null,
-      }
+const payload = {
+  outcomeKey:
+    selectedAction.outcomeKey,
+
+  nextAssigneeUserId:
+    assigneeId || null,
+
+  comment:
+    comment.trim() || null,
+
+  fieldAnswers:
+    taskForm?.currentFields?.map(
+      (field) => ({
+        fieldId: field.id,
+        value:
+          fieldValues[field.id] ??
+          null,
+      })
+    ) || [],
+}
 
       console.log('COMPLETING TASK:', {
         taskId: selected.id,
@@ -238,6 +269,8 @@ export default function MyTasksPage({ navigate }) {
       setAssignees([])
       setAssigneeId('')
       setComment('')
+      setTaskForm(null)
+setFieldValues({})
 
       await load()
     } catch (err) {
@@ -694,6 +727,11 @@ export default function MyTasksPage({ navigate }) {
                         )}
                     </label>
                   )}
+                  <WorkflowTaskFields
+  form={taskForm}
+  values={fieldValues}
+  onChange={setFieldValues}
+/>
 
                 {/* =========================
                     COMMENT

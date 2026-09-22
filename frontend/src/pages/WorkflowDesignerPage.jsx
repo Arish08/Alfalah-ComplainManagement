@@ -19,6 +19,7 @@ import { workflowNodeType, workflowStatus } from '../constants.js'
 
 const nodeTypes = { workflowNode: WorkflowNode }
 const commonRoles = ['UnitHead', 'TeamLead', 'Officer', 'DeptAdmin']
+import WorkflowFieldBuilder from '../components/WorkflowFieldBuilder.jsx'
 
 function read(obj, camel, pascal) {
   return obj?.[camel] ?? obj?.[pascal]
@@ -97,6 +98,11 @@ export default function WorkflowDesignerPage({ workflowId, isNew, navigate }) {
               slaHours: read(n, 'slaHours', 'SlaHours') ?? '',
               escalationRoleCode: read(n, 'escalationRoleCode', 'EscalationRoleCode') || '',
               assignmentMode: config.assignmentMode || 'queue',
+              sendEmailNotification:
+  config.sendEmailNotification ?? false,
+              fields:
+  read(n, 'fields', 'Fields') || [],
+              
             },
           }
         })
@@ -131,7 +137,20 @@ export default function WorkflowDesignerPage({ workflowId, isNew, navigate }) {
       id,
       type: 'workflowNode',
       position: { x: 320 + current.length * 25, y: 140 + current.length * 18 },
-      data: { label: 'New approval step', nodeType: 1, roleCode: 'TeamLead', slaHours: 24, escalationRoleCode: 'UnitHead', assignmentMode: 'queue' },
+  data: {
+  label: 'New approval step',
+  nodeType: 1,
+  roleCode: 'TeamLead',
+  slaHours: 24,
+  escalationRoleCode: 'UnitHead',
+  assignmentMode: 'queue',
+
+  sendEmailNotification: false,
+
+  fields: [],
+
+
+},
     }])
     setSelectedNodeId(id)
     setSelectedEdgeId('')
@@ -165,29 +184,67 @@ export default function WorkflowDesignerPage({ workflowId, isNew, navigate }) {
     }
   }
 
-  const toPayload = () => ({
-    name: name.trim(),
-    departmentId,
-    categoryId,
-    nodes: nodes.map((node) => ({
-      key: node.id,
-      name: node.data.label || node.id,
-      type: Number(node.data.nodeType),
-      roleCode: Number(node.data.nodeType) === 1 ? (node.data.roleCode || null) : null,
-      slaHours: Number(node.data.nodeType) === 1 && node.data.slaHours ? Number(node.data.slaHours) : null,
-      escalationRoleCode: Number(node.data.nodeType) === 1 ? (node.data.escalationRoleCode || null) : null,
-      x: Math.round(node.position.x * 100) / 100,
-      y: Math.round(node.position.y * 100) / 100,
-      configJson: Number(node.data.nodeType) === 1 ? JSON.stringify({ assignmentMode: node.data.assignmentMode || 'queue' }) : null,
-    })),
-    edges: edges.map((edge) => ({
-      sourceKey: edge.source,
-      targetKey: edge.target,
-      outcomeKey: edge.data?.outcomeKey || null,
-      label: edge.data?.label || edge.label || null,
-    })),
-  })
+const toPayload = () => ({
+  name: name.trim(),
 
+departmentId: departmentId,
+categoryId: categoryId,
+
+  nodes: nodes.map((node) => ({
+    key: node.id,
+    name: node.data.label,
+    type: Number(node.data.nodeType),
+
+    roleCode:
+      Number(node.data.nodeType) === 1
+        ? node.data.roleCode || null
+        : null,
+
+    slaHours:
+      Number(node.data.nodeType) === 1
+        ? Number(node.data.slaHours) || null
+        : null,
+
+    escalationRoleCode:
+      Number(node.data.nodeType) === 1
+        ? node.data.escalationRoleCode || null
+        : null,
+
+    x: node.position.x,
+    y: node.position.y,
+
+configJson:
+  Number(node.data.nodeType) === 1
+    ? JSON.stringify({
+        assignmentMode:
+          node.data.assignmentMode || 'queue',
+
+        sendEmailNotification:
+          !!node.data.sendEmailNotification,
+      })
+    : null,
+
+    fields:
+      Number(node.data.nodeType) === 1
+        ? (node.data.fields || []).map((field, index) => ({
+            fieldKey: field.fieldKey,
+            label: field.label,
+            fieldType: field.fieldType,
+            placeholder: field.placeholder || null,
+            isRequired: !!field.isRequired,
+            displayOrder: index,
+            options: field.options || [],
+          }))
+        : [],
+  })),
+
+  edges: edges.map((edge) => ({
+    sourceKey: edge.source,
+    targetKey: edge.target,
+    outcomeKey: edge.data?.outcomeKey || null,
+    label: edge.data?.label || edge.label || null,
+  })),
+})
   const save = async () => {
     if (readOnly) return definition
     setSaving(true)
@@ -218,8 +275,12 @@ export default function WorkflowDesignerPage({ workflowId, isNew, navigate }) {
     } catch (err) { setError(err.message) }
     finally { setSaving(false) }
   }
-
-  if (!roles.has('DeptAdmin')) return <section className="panel"><ErrorBanner message="Department admin access is required for the workflow designer." /></section>
+if (!roles.has('DeptAdmin') && !roles.has('UnitHead'))
+  return (
+    <section className="panel">
+      <ErrorBanner message="Unit Head or Department Admin access is required for the workflow designer." />
+    </section>
+  )
 
   return (
     <>
@@ -279,10 +340,52 @@ export default function WorkflowDesignerPage({ workflowId, isNew, navigate }) {
               <label className="field compact"><span>Step name</span><input className="input" value={selectedNode.data.label || ''} onChange={(e) => updateSelectedNode({ label: e.target.value })} disabled={readOnly} /></label>
               <label className="field compact"><span>Node type</span><select className="input" value={selectedNode.data.nodeType} onChange={(e) => updateSelectedNode({ nodeType: Number(e.target.value) })} disabled={readOnly}><option value="0">Start</option><option value="1">Human task</option><option value="2">End</option></select></label>
               {selectedNode.data.nodeType === workflowNodeType.HumanTask && <>
+           
+              
                 <label className="field compact"><span>Assigned role</span><input className="input" list="common-roles" value={selectedNode.data.roleCode || ''} onChange={(e) => updateSelectedNode({ roleCode: e.target.value })} disabled={readOnly} /><datalist id="common-roles">{commonRoles.map((role) => <option value={role} key={role} />)}</datalist></label>
                 <label className="field compact"><span>SLA hours</span><input className="input" type="number" min="1" value={selectedNode.data.slaHours ?? ''} onChange={(e) => updateSelectedNode({ slaHours: e.target.value })} disabled={readOnly} /></label>
                 <label className="field compact"><span>Escalate to role</span><input className="input" list="common-roles" value={selectedNode.data.escalationRoleCode || ''} onChange={(e) => updateSelectedNode({ escalationRoleCode: e.target.value })} disabled={readOnly} /></label>
                 <label className="field compact"><span>Assignment mode</span><select className="input" value={selectedNode.data.assignmentMode || 'queue'} onChange={(e) => updateSelectedNode({ assignmentMode: e.target.value })} disabled={readOnly}><option value="queue">Role queue</option><option value="specific">Require specific user</option></select></label>
+                <div className="workflow-toggle-row">
+  <div>
+    <strong>Email notification</strong>
+
+    <div className="muted-text">
+      Notify the assigned user when this
+      complaint reaches this step.
+    </div>
+  </div>
+
+  <label className="toggle-switch">
+    <input
+      type="checkbox"
+      checked={
+        !!selectedNode.data
+          .sendEmailNotification
+      }
+      onChange={(e) =>
+        updateSelectedNode({
+          sendEmailNotification:
+            e.target.checked,
+        })
+      }
+      disabled={readOnly}
+    />
+
+    <span className="toggle-slider" />
+  </label>
+</div>
+                <WorkflowFieldBuilder
+  fields={
+    selectedNode.data.fields || []
+  }
+  disabled={readOnly}
+  onChange={(fields) =>
+    updateSelectedNode({
+      fields,
+    })
+  }
+/>
               </>}
               {!readOnly && <button className="btn btn-danger-soft" onClick={deleteSelection}>Delete node</button>}
             </div>

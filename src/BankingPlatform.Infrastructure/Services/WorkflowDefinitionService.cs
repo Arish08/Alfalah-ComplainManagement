@@ -6,6 +6,7 @@ using BankingPlatform.Domain.Enums;
 using BankingPlatform.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
+
 namespace BankingPlatform.Infrastructure.Services;
 
 public sealed class WorkflowDefinitionService(AppDbContext db, ICurrentUser currentUser) : IWorkflowDefinitionService
@@ -43,9 +44,10 @@ public sealed class WorkflowDefinitionService(AppDbContext db, ICurrentUser curr
     public async Task<WorkflowDefinitionDto> UpdateDraftAsync(Guid id, CreateWorkflowDefinitionRequest request, CancellationToken cancellationToken)
     {
         Validate(request);
-        var definition = await db.WorkflowDefinitions
-            .Include(x => x.Nodes)
-            .Include(x => x.Transitions)
+       var definition = await db.WorkflowDefinitions
+    .Include(x => x.Nodes)
+        .ThenInclude(x => x.Fields)
+    .Include(x => x.Transitions)
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
             ?? throw new KeyNotFoundException("Workflow definition not found.");
 
@@ -129,51 +131,182 @@ public sealed class WorkflowDefinitionService(AppDbContext db, ICurrentUser curr
         return items.Select(Map).ToList();
     }
 
-    private async Task EnsureDepartmentAdminAsync(Guid departmentId, CancellationToken cancellationToken)
-    {
-        var allowed = await db.DepartmentMemberships.AsNoTracking().AnyAsync(x =>
-            x.UserId == currentUser.UserId && x.DepartmentId == departmentId && x.RoleCode == "DeptAdmin", cancellationToken);
-        if (!allowed) throw new UnauthorizedAccessException("Only a department admin can create, edit or publish workflows for this department.");
-    }
+ private async Task EnsureDepartmentAdminAsync(
+    Guid departmentId,
+    CancellationToken cancellationToken)
+{
+    var allowed = await db.DepartmentMemberships
+        .AsNoTracking()
+        .AnyAsync(x =>
+            x.UserId == currentUser.UserId &&
+            x.DepartmentId == departmentId &&
+            (x.RoleCode == "DeptAdmin" || x.RoleCode == "UnitHead"),
+            cancellationToken);
 
+    if (!allowed)
+    {
+        throw new UnauthorizedAccessException(
+            $"Workflow access denied. UserId={currentUser.UserId}, DepartmentId={departmentId}");
+    }
+}
     private static WorkflowDefinitionDto Map(WorkflowDefinition x) =>
         new(x.Id, x.Name, x.DepartmentId, x.CategoryId, x.Version, x.Status, x.DesignerJson, x.PublishedAtUtc);
 
-    private static void BuildGraph(WorkflowDefinition definition, CreateWorkflowDefinitionRequest request)
+   private static void BuildGraph(
+    WorkflowDefinition definition,
+    CreateWorkflowDefinitionRequest request)
+{
+    var byKey = new Dictionary<string, WorkflowNode>(
+        StringComparer.OrdinalIgnoreCase);
+
+    // ---------------------------------------------------------
+    // 1. CREATE WORKFLOW NODES + DYNAMIC FIELDS
+    // ---------------------------------------------------------
+    foreach (var item in request.Nodes)
     {
-        var byKey = new Dictionary<string, WorkflowNode>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in request.Nodes)
+        var node = new WorkflowNode
         {
-            var node = new WorkflowNode
+            WorkflowDefinitionId = definition.Id,
+            NodeKey = item.Key.Trim(),
+            Name = item.Name.Trim(),
+            Type = item.Type,
+            RoleCode = item.RoleCode?.Trim(),
+            SlaHours = item.SlaHours,
+            EscalationRoleCode = item.EscalationRoleCode?.Trim(),
+            PositionX = item.X,
+            PositionY = item.Y,
+            ConfigJson = item.ConfigJson
+        };
+
+        // Dynamic fields only belong to Human Task nodes
+        if (item.Type == WorkflowNodeType.HumanTask &&
+            item.Fields is not null)
+        {
+            foreach (var field in item.Fields.OrderBy(x => x.DisplayOrder))
             {
-                WorkflowDefinitionId = definition.Id,
-                NodeKey = item.Key.Trim(),
-                Name = item.Name.Trim(),
-                Type = item.Type,
-                RoleCode = item.RoleCode?.Trim(),
-                SlaHours = item.SlaHours,
-                EscalationRoleCode = item.EscalationRoleCode?.Trim(),
-                PositionX = item.X,
-                PositionY = item.Y,
-                ConfigJson = item.ConfigJson
-            };
-            definition.Nodes.Add(node);
-            byKey[node.NodeKey] = node;
+                node.Fields.Add(new WorkflowNodeField
+                {
+                    WorkflowNodeId = node.Id,
+                    FieldKey = field.FieldKey.Trim(),
+                    Label = field.Label.Trim(),
+                    FieldType = field.FieldType.Trim().ToLowerInvariant(),
+                    Placeholder = field.Placeholder?.Trim(),
+                    IsRequired = field.IsRequired,
+                    DisplayOrder = field.DisplayOrder,
+                    OptionsJson = field.Options is null
+                        ? null
+                        : JsonSerializer.Serialize(field.Options)
+                });
+            }
         }
 
-        foreach (var edge in request.Edges)
+        definition.Nodes.Add(node);
+
+        byKey[node.NodeKey] = node;
+    }
+
+    // ---------------------------------------------------------
+    // 2. VALIDATE HUMAN TASKS + THEIR DYNAMIC FIELDS
+    // ---------------------------------------------------------
+    foreach (var node in request.Nodes.Where(
+                 x => x.Type == WorkflowNodeType.HumanTask))
+    {
+        if (string.IsNullOrWhiteSpace(node.RoleCode))
         {
-            definition.Transitions.Add(new WorkflowTransition
+            throw new ArgumentException(
+                $"Human task '{node.Name}' needs a roleCode.");
+        }
+
+        if (node.SlaHours is <= 0)
+        {
+            throw new ArgumentException(
+                $"SLA hours for '{node.Name}' must be positive.");
+        }
+
+        var fields =
+            node.Fields ??
+            Array.Empty<WorkflowNodeFieldRequest>();
+
+        var keys = fields
+            .Select(x => x.FieldKey.Trim())
+            .ToList();
+
+        if (keys.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException(
+                $"Every field in '{node.Name}' needs a field key.");
+        }
+
+        if (keys.Count !=
+            keys.Distinct(StringComparer.OrdinalIgnoreCase).Count())
+        {
+            throw new ArgumentException(
+                $"Duplicate field keys found in '{node.Name}'.");
+        }
+
+        foreach (var field in fields)
+        {
+            if (string.IsNullOrWhiteSpace(field.Label))
             {
-                WorkflowDefinitionId = definition.Id,
-                SourceNodeId = byKey[edge.SourceKey].Id,
-                TargetNodeId = byKey[edge.TargetKey].Id,
-                OutcomeKey = string.IsNullOrWhiteSpace(edge.OutcomeKey) ? null : edge.OutcomeKey.Trim(),
-                Label = edge.Label?.Trim()
-            });
+                throw new ArgumentException(
+                    $"Every field in '{node.Name}' needs a label.");
+            }
+
+            if (string.IsNullOrWhiteSpace(field.FieldType))
+            {
+                throw new ArgumentException(
+                    $"Field '{field.Label}' needs a field type.");
+            }
         }
     }
 
+    // ---------------------------------------------------------
+    // 3. CREATE WORKFLOW TRANSITIONS FROM DESIGNER EDGES
+    // ---------------------------------------------------------
+    foreach (var edge in request.Edges)
+    {
+        if (!byKey.TryGetValue(edge.SourceKey.Trim(), out var sourceNode))
+        {
+            throw new ArgumentException(
+                $"Source node '{edge.SourceKey}' was not found.");
+        }
+
+        if (!byKey.TryGetValue(edge.TargetKey.Trim(), out var targetNode))
+        {
+            throw new ArgumentException(
+                $"Target node '{edge.TargetKey}' was not found.");
+        }
+
+        var transition = new WorkflowTransition
+        {
+            WorkflowDefinitionId = definition.Id,
+
+            SourceNodeId = sourceNode.Id,
+
+            TargetNodeId = targetNode.Id,
+
+            OutcomeKey = string.IsNullOrWhiteSpace(edge.OutcomeKey)
+                ? null
+                : edge.OutcomeKey.Trim(),
+
+            Label = string.IsNullOrWhiteSpace(edge.Label)
+                ? null
+                : edge.Label.Trim()
+        };
+
+        definition.Transitions.Add(transition);
+    }
+}
+
+
+
+public sealed class WorkflowNodeConfig
+{
+    public string AssignmentMode { get; set; }
+        = "queue";
+
+    public bool SendEmailNotification { get; set; }
+}
     private static void Validate(CreateWorkflowDefinitionRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Name)) throw new ArgumentException("Workflow name is required.");

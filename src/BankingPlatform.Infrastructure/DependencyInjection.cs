@@ -5,6 +5,7 @@ using BankingPlatform.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using BankingPlatform.Infrastructure.Email;
 
 namespace BankingPlatform.Infrastructure;
 
@@ -22,6 +23,10 @@ public static class DependencyInjection
         services.AddScoped<IWorkflowRuntime, SqlWorkflowRuntime>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddHostedService<SlaEscalationWorker>();
+        services.Configure<EmailOptions>(
+    configuration.GetSection("Email"));
+
+services.AddScoped<IEmailService, SmtpEmailService>();
         return services;
     }
 }

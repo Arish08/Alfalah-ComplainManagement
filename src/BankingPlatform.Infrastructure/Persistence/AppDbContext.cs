@@ -16,6 +16,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<WorkflowTransition> WorkflowTransitions => Set<WorkflowTransition>();
     public DbSet<WorkflowInstance> WorkflowInstances => Set<WorkflowInstance>();
     public DbSet<WorkflowTask> WorkflowTasks => Set<WorkflowTask>();
+    public DbSet<WorkflowNodeField> WorkflowNodeFields =>
+    Set<WorkflowNodeField>();
+
+public DbSet<WorkflowFieldResponse> WorkflowFieldResponses =>
+    Set<WorkflowFieldResponse>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,6 +40,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         modelBuilder.Entity<WorkflowNode>().Property(x => x.PositionX).HasPrecision(18, 2);
         modelBuilder.Entity<WorkflowNode>().Property(x => x.PositionY).HasPrecision(18, 2);
+        modelBuilder.Entity<WorkflowNodeField>()
+    .HasIndex(x => new
+    {
+        x.WorkflowNodeId,
+        x.FieldKey
+    })
+    .IsUnique();
+
+modelBuilder.Entity<WorkflowNodeField>()
+    .HasIndex(x => new
+    {
+        x.WorkflowNodeId,
+        x.DisplayOrder
+    });
+
+modelBuilder.Entity<WorkflowFieldResponse>()
+    .HasIndex(x => new
+    {
+        x.WorkflowTaskId,
+        x.WorkflowNodeFieldId
+    })
+    .IsUnique();
+
+modelBuilder.Entity<WorkflowFieldResponse>()
+    .HasIndex(x => x.ComplaintId);
 
         modelBuilder.Entity<WorkflowTransition>()
             .HasOne(x => x.SourceNode)
@@ -101,5 +131,42 @@ modelBuilder.Entity<WorkflowTask>()
     .WithMany()
     .HasForeignKey(x => x.ComplaintId)
     .OnDelete(DeleteBehavior.NoAction);
+
+    modelBuilder.Entity<WorkflowNodeField>()
+    .HasOne(x => x.WorkflowNode)
+    .WithMany(x => x.Fields)
+    .HasForeignKey(x => x.WorkflowNodeId)
+    .OnDelete(DeleteBehavior.Cascade);
+
+modelBuilder.Entity<WorkflowFieldResponse>()
+    .HasOne(x => x.Complaint)
+    .WithMany()
+    .HasForeignKey(x => x.ComplaintId)
+    .OnDelete(DeleteBehavior.NoAction);
+
+modelBuilder.Entity<WorkflowFieldResponse>()
+    .HasOne(x => x.WorkflowTask)
+    .WithMany()
+    .HasForeignKey(x => x.WorkflowTaskId)
+    .OnDelete(DeleteBehavior.NoAction);
+
+modelBuilder.Entity<WorkflowFieldResponse>()
+    .HasOne(x => x.WorkflowNode)
+    .WithMany()
+    .HasForeignKey(x => x.WorkflowNodeId)
+    .OnDelete(DeleteBehavior.NoAction);
+
+modelBuilder.Entity<WorkflowFieldResponse>()
+    .HasOne(x => x.WorkflowNodeField)
+    .WithMany()
+    .HasForeignKey(x => x.WorkflowNodeFieldId)
+    .OnDelete(DeleteBehavior.NoAction);
+
+modelBuilder.Entity<WorkflowFieldResponse>()
+    .HasOne(x => x.SubmittedByUser)
+    .WithMany()
+    .HasForeignKey(x => x.SubmittedByUserId)
+    .OnDelete(DeleteBehavior.NoAction);
+    
     }
 }

@@ -1,4 +1,5 @@
 using BankingPlatform.Domain.Enums;
+using System.Text.Json;
 
 namespace BankingPlatform.Application.DTOs;
 
@@ -46,8 +47,8 @@ public sealed record WorkflowNodeRequest(
     string? EscalationRoleCode,
     decimal X,
     decimal Y,
-    string? ConfigJson = null);
-
+    string? ConfigJson = null,
+    IReadOnlyList<WorkflowNodeFieldRequest>? Fields = null);
 public sealed record WorkflowEdgeRequest(
     string SourceKey,
     string TargetKey,
@@ -97,7 +98,17 @@ public sealed record WorkflowTaskActionDto(
 public sealed record CompleteWorkflowTaskRequest(
     string? OutcomeKey,
     Guid? NextAssigneeUserId,
-    string? Comment);
+    string? Comment,
+    IReadOnlyList<WorkflowFieldAnswerRequest>? FieldAnswers = null);
+
+    public sealed record WorkflowNodeFieldRequest(
+    string FieldKey,
+    string Label,
+    string FieldType,
+    string? Placeholder,
+    bool IsRequired,
+    int DisplayOrder,
+    IReadOnlyList<string>? Options);
 
 public sealed record ReassignWorkflowTaskRequest(Guid UserId, string? Comment);
 
@@ -105,3 +116,37 @@ public sealed record ReferenceItemDto(Guid Id, string Code, string Name);
 public sealed record UserReferenceDto(Guid Id, string EmployeeCode, string DisplayName, string Email, string RoleCode);
 public sealed record CurrentUserMembershipDto(Guid DepartmentId, string DepartmentCode, string DepartmentName, string RoleCode);
 public sealed record CurrentUserDto(Guid Id, string EmployeeCode, string DisplayName, string Email, IReadOnlyList<CurrentUserMembershipDto> Memberships);
+
+public sealed record WorkflowTaskFieldDto(
+    Guid Id,
+    string FieldKey,
+    string Label,
+    string FieldType,
+    string? Placeholder,
+    bool IsRequired,
+    int DisplayOrder,
+    IReadOnlyList<string> Options);
+
+public sealed record PreviousWorkflowFieldDto(
+    string FieldKey,
+    string Label,
+    string FieldType,
+    object? Value);
+
+public sealed record PreviousWorkflowStepDto(
+    Guid WorkflowTaskId,
+    string NodeName,
+    string? RoleCode,
+    string? SubmittedBy,
+    DateTime? SubmittedAtUtc,
+    IReadOnlyList<PreviousWorkflowFieldDto> Fields);
+
+public sealed record WorkflowTaskFormDto(
+    Guid WorkflowTaskId,
+    string NodeName,
+    IReadOnlyList<WorkflowTaskFieldDto> CurrentFields,
+    IReadOnlyList<PreviousWorkflowStepDto> PreviousSteps);
+
+    public sealed record WorkflowFieldAnswerRequest(
+    Guid FieldId,
+    JsonElement? Value);

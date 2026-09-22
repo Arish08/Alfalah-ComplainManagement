@@ -24,9 +24,12 @@ export default function WorkflowsPage({ navigate }) {
   }
   useEffect(() => { load() }, [userId])
 
-  if (!roles.has('DeptAdmin')) {
-    return <section className="panel"><EmptyState title="Department admin access required" description="Workflow creation, editing and publishing is restricted to department administrators." /></section>
-  }
+if (!roles.has('DeptAdmin') && !roles.has('UnitHead'))
+  return (
+    <section className="panel">
+      <ErrorBanner message="Unit Head or Department Admin access is required for the workflow designer." />
+    </section>
+  )
 
   const publish = async (id) => {
     setBusyId(id)

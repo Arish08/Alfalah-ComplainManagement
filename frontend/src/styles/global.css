@@ -232,3 +232,212 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .modal-actions { align-items: stretch; flex-direction: column; }
   .modal-actions-right { margin-left: 0; }
 }
+
+/* ==========================================
+   WORKFLOW FIELD LIST
+   ========================================== */
+
+.workflow-fields-empty {
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px dashed #d8dde6;
+  border-radius: 8px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.workflow-field-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  padding: 12px;
+  margin-bottom: 10px;
+
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.workflow-field-summary-info {
+  min-width: 0;
+}
+
+.workflow-field-meta {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.workflow-field-key {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.workflow-field-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+
+/* ==========================================
+   MODAL
+   ========================================== */
+
+.workflow-field-modal-backdrop {
+  position: fixed;
+  inset: 0;
+
+  z-index: 9999;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 24px;
+
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.workflow-field-modal {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+
+  display: flex;
+  flex-direction: column;
+
+  background: #fff;
+  border-radius: 12px;
+
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    0 8px 10px -6px rgba(0, 0, 0, 0.1);
+
+  overflow: hidden;
+}
+
+.workflow-field-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+
+  padding: 20px 22px;
+
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.workflow-field-modal-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.workflow-field-modal-header .muted-text {
+  margin: 0;
+}
+
+.workflow-field-modal-close {
+  border: 0;
+  background: transparent;
+
+  padding: 0;
+
+  font-size: 26px;
+  line-height: 1;
+
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.workflow-field-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  padding: 22px;
+
+  overflow-y: auto;
+}
+
+.workflow-field-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+
+  padding: 16px 22px;
+
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+.workflow-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  padding: 12px 0;
+}
+
+.workflow-toggle-row .muted-text {
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+
+  cursor: pointer;
+
+  background: #cbd5e1;
+  border-radius: 999px;
+
+  transition: 0.2s;
+}
+
+.toggle-slider::before {
+  content: '';
+
+  position: absolute;
+
+  width: 18px;
+  height: 18px;
+
+  left: 3px;
+  top: 3px;
+
+  background: white;
+  border-radius: 50%;
+
+  transition: 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: #c12020;
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(20px);
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

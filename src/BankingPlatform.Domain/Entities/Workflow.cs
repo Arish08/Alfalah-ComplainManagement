@@ -32,6 +32,8 @@ public sealed class WorkflowNode : EntityBase
     public decimal PositionX { get; set; }
     public decimal PositionY { get; set; }
     public string? ConfigJson { get; set; }
+    public ICollection<WorkflowNodeField> Fields { get; set; }
+    = new List<WorkflowNodeField>();
 }
 
 public sealed class WorkflowTransition : EntityBase

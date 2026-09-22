@@ -29,4 +29,16 @@ public sealed class WorkflowTasksController(IWorkflowTaskService service) : Cont
         await service.ReassignAsync(taskId, request, cancellationToken);
         return NoContent();
     }
+
+    [HttpGet("{taskId:guid}/form")]
+public async Task<ActionResult<WorkflowTaskFormDto>>
+    GetForm(
+        Guid taskId,
+        CancellationToken cancellationToken)
+{
+    return Ok(
+        await service.GetFormAsync(
+            taskId,
+            cancellationToken));
+}
 }

@@ -93,7 +93,178 @@ public sealed class WorkflowTaskService(AppDbContext db, ICurrentUser currentUse
 
         return actions;
     }
+public async Task<WorkflowTaskFormDto>
+    GetFormAsync(
+        Guid taskId,
+        CancellationToken cancellationToken)
+{
+    var task =
+        await db.WorkflowTasks
+            .AsNoTracking()
+            .Include(x => x.WorkflowNode)
+                .ThenInclude(x => x.Fields)
+            .FirstOrDefaultAsync(
+                x => x.Id == taskId,
+                cancellationToken)
+        ?? throw new KeyNotFoundException(
+            "Task not found.");
 
+    if (
+        task.Status !=
+        WorkflowTaskStatus.Open)
+    {
+        throw new InvalidOperationException(
+            "Task is no longer open.");
+    }
+
+    var canAct =
+        task.AssignedToUserId ==
+        currentUser.UserId;
+
+    if (
+        !canAct &&
+        task.AssignedToUserId is null &&
+        !string.IsNullOrWhiteSpace(
+            task.AssignedRoleCode))
+    {
+        canAct =
+            await db.DepartmentMemberships
+                .AsNoTracking()
+                .AnyAsync(
+                    x =>
+                        x.UserId ==
+                            currentUser.UserId &&
+                        x.DepartmentId ==
+                            task.DepartmentId &&
+                        x.RoleCode ==
+                            task.AssignedRoleCode,
+                    cancellationToken);
+    }
+
+    if (!canAct)
+    {
+        throw new UnauthorizedAccessException(
+            "This task is not assigned to you or your role queue.");
+    }
+
+    var currentFields =
+        task.WorkflowNode.Fields
+            .OrderBy(x => x.DisplayOrder)
+            .Select(
+                field =>
+                    new WorkflowTaskFieldDto(
+                        field.Id,
+                        field.FieldKey,
+                        field.Label,
+                        field.FieldType,
+                        field.Placeholder,
+                        field.IsRequired,
+                        field.DisplayOrder,
+                        ParseOptions(
+                            field.OptionsJson)))
+            .ToList();
+
+    var completedTasks =
+    await db.WorkflowTasks
+        .AsNoTracking()
+        .Include(x => x.WorkflowNode)
+        .Where(
+            x =>
+                x.ComplaintId == task.ComplaintId &&
+                x.Status == WorkflowTaskStatus.Completed)
+        .OrderBy(x => x.CompletedAtUtc)
+        .ToListAsync(cancellationToken);
+
+        var completedByUserIds =
+    completedTasks
+        .Where(x => x.CompletedByUserId.HasValue)
+        .Select(x => x.CompletedByUserId!.Value)
+        .Distinct()
+        .ToList();
+
+var completedByUsers =
+    await db.Users
+        .AsNoTracking()
+        .Where(x => completedByUserIds.Contains(x.Id))
+        .ToDictionaryAsync(
+            x => x.Id,
+            x => x.DisplayName,
+            cancellationToken);
+
+    var completedTaskIds =
+        completedTasks
+            .Select(x => x.Id)
+            .ToList();
+
+    var responses =
+        await db.WorkflowFieldResponses
+            .AsNoTracking()
+            .Include(x => x.WorkflowNodeField)
+            .Where(
+                x =>
+                    completedTaskIds.Contains(
+                        x.WorkflowTaskId))
+            .ToListAsync(
+                cancellationToken);
+
+   var previousSteps =
+    completedTasks
+        .Select(previousTask =>
+        {
+            var taskResponses =
+                responses
+                    .Where(
+                        x =>
+                            x.WorkflowTaskId ==
+                            previousTask.Id)
+                    .OrderBy(
+                        x =>
+                            x.WorkflowNodeField
+                                .DisplayOrder)
+                    .Select(
+                        response =>
+                            new PreviousWorkflowFieldDto(
+                                response
+                                    .WorkflowNodeField
+                                    .FieldKey,
+
+                                response
+                                    .WorkflowNodeField
+                                    .Label,
+
+                                response
+                                    .WorkflowNodeField
+                                    .FieldType,
+
+                                ParseValue(
+                                    response.ValueJson)))
+                    .ToList();
+
+            var submittedBy =
+                previousTask.CompletedByUserId.HasValue &&
+                completedByUsers.TryGetValue(
+                    previousTask.CompletedByUserId.Value,
+                    out var userName)
+                    ? userName
+                    : null;
+
+            return new PreviousWorkflowStepDto(
+                previousTask.Id,
+                previousTask.WorkflowNode.Name,
+                previousTask.AssignedRoleCode,
+                submittedBy,
+                previousTask.CompletedAtUtc,
+                taskResponses);
+        })
+        .Where(x => x.Fields.Count > 0)
+        .ToList();
+
+    return new WorkflowTaskFormDto(
+        task.Id,
+        task.WorkflowNode.Name,
+        currentFields,
+        previousSteps);
+}
     public Task CompleteAsync(Guid taskId, CompleteWorkflowTaskRequest request, CancellationToken cancellationToken) =>
         runtime.CompleteTaskAsync(taskId, currentUser.UserId, request, cancellationToken);
 
@@ -153,4 +324,38 @@ public sealed class WorkflowTaskService(AppDbContext db, ICurrentUser currentUse
             return false;
         }
     }
+    private static IReadOnlyList<string>
+    ParseOptions(string? json)
+{
+    if (string.IsNullOrWhiteSpace(json))
+        return Array.Empty<string>();
+
+    try
+    {
+        return JsonSerializer
+                   .Deserialize<List<string>>(json)
+               ?? [];
+    }
+    catch
+    {
+        return [];
+    }
+}
+
+private static object? ParseValue(
+    string? json)
+{
+    if (string.IsNullOrWhiteSpace(json))
+        return null;
+
+    try
+    {
+        return JsonSerializer
+            .Deserialize<object>(json);
+    }
+    catch
+    {
+        return json;
+    }
+}
 }

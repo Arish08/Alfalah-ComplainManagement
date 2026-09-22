@@ -38,8 +38,9 @@ public sealed class SqlWorkflowRuntime(AppDbContext db) : IWorkflowRuntime
 
     public async Task CompleteTaskAsync(Guid taskId, Guid actorUserId, CompleteWorkflowTaskRequest request, CancellationToken cancellationToken)
     {
-        var task = await db.WorkflowTasks
-            .Include(x => x.WorkflowNode)
+       var task = await db.WorkflowTasks
+    .Include(x => x.WorkflowNode)
+        .ThenInclude(x => x.Fields)
             .Include(x => x.WorkflowInstance)
                 .ThenInclude(x => x.WorkflowDefinition)
                     .ThenInclude(x => x.Nodes)
@@ -69,6 +70,88 @@ public sealed class SqlWorkflowRuntime(AppDbContext db) : IWorkflowRuntime
             var userExists = await db.Users.AnyAsync(x => x.Id == request.NextAssigneeUserId.Value && x.IsActive, cancellationToken);
             if (!userExists) throw new ArgumentException("Selected assignee does not exist or is inactive.");
         }
+
+        var fields =
+    task.WorkflowNode.Fields
+        .OrderBy(x => x.DisplayOrder)
+        .ToList();
+
+var suppliedAnswers =
+    request.FieldAnswers ??
+    Array.Empty<WorkflowFieldAnswerRequest>();
+
+var answerLookup =
+    suppliedAnswers
+        .GroupBy(x => x.FieldId)
+        .ToDictionary(
+            x => x.Key,
+            x => x.Last());
+
+foreach (
+    var answer in suppliedAnswers)
+{
+    if (
+        fields.All(
+            x =>
+                x.Id != answer.FieldId))
+    {
+        throw new ArgumentException(
+            "One of the submitted fields does not belong to this workflow step.");
+    }
+}
+
+foreach (
+    var requiredField in
+    fields.Where(x => x.IsRequired))
+{
+    if (
+        !answerLookup.TryGetValue(
+            requiredField.Id,
+            out var answer) ||
+        IsEmpty(answer.Value))
+    {
+        throw new ArgumentException(
+            $"'{requiredField.Label}' is required.");
+    }
+}
+
+foreach (var field in fields)
+{
+    answerLookup.TryGetValue(
+        field.Id,
+        out var answer);
+
+    var valueJson =
+        answer?.Value is null
+            ? null
+            : answer.Value.Value
+                .GetRawText();
+
+    db.WorkflowFieldResponses.Add(
+        new WorkflowFieldResponse
+        {
+            ComplaintId =
+                task.ComplaintId,
+
+            WorkflowTaskId =
+                task.Id,
+
+            WorkflowNodeId =
+                task.WorkflowNodeId,
+
+            WorkflowNodeFieldId =
+                field.Id,
+
+            SubmittedByUserId =
+                actorUserId,
+
+            ValueJson =
+                valueJson,
+
+            SubmittedAtUtc =
+                DateTime.UtcNow
+        });
+}
 
         task.Status = WorkflowTaskStatus.Completed;
         task.CompletedAtUtc = DateTime.UtcNow;
@@ -211,5 +294,40 @@ public sealed class SqlWorkflowRuntime(AppDbContext db) : IWorkflowRuntime
             return false;
         }
     }
+
+    private static bool IsEmpty(
+    JsonElement? value)
+{
+    if (!value.HasValue)
+        return true;
+
+    var element = value.Value;
+
+    if (
+        element.ValueKind ==
+        JsonValueKind.Null ||
+        element.ValueKind ==
+        JsonValueKind.Undefined)
+    {
+        return true;
+    }
+
+    if (
+        element.ValueKind ==
+        JsonValueKind.String)
+    {
+        return string.IsNullOrWhiteSpace(
+            element.GetString());
+    }
+
+    if (
+        element.ValueKind ==
+        JsonValueKind.Array)
+    {
+        return element.GetArrayLength() == 0;
+    }
+
+    return false;
+}
 
 }
