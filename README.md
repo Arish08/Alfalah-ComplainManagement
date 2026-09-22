@@ -1,815 +1,1182 @@
-Complaint Management System — Dynamic E-Form Frontend
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  addEdge,
+  MarkerType,
+  useEdgesState,
+  useNodesState,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+import { api } from '../api/client.js'
+import { useDevUser } from '../auth/DevUserContext.jsx'
+import PageHeader from '../components/PageHeader.jsx'
+import ErrorBanner from '../components/ErrorBanner.jsx'
+import WorkflowNode from '../workflow/WorkflowNode.jsx'
+import { workflowNodeType, workflowStatus } from '../constants.js'
 
-A React frontend for a dynamic E-Form system integrated with a Complaint Management workflow.
+const nodeTypes = { workflowNode: WorkflowNode }
+const commonRoles = ['UnitHead', 'TeamLead', 'Officer', 'DeptAdmin']
 
-Instead of keeping the complaint action/comment modal static, the Unit Head can configure E-Form fields for each workflow step. When a complaint reaches that step, the assigned Officer, Team Lead, or Unit Head receives the appropriate dynamic form.
-
-Architecture
-
-Workflow Step
-    ↓
-E-Form Definition
-    ↓
-Dynamic Fields
-    ↓
-Officer / Team Lead / Unit Head
-    ↓
-Save Draft or Submit & Continue
-    ↓
-Backend / Database (future integration)
-    ↓
-Next Workflow Step
-
-Features
-
-• Dynamic E-Form builder
-• Live form preview
-• Workflow-step-based forms
-• Required and read-only fields
-• Text, textarea, number, date, date/time fields
-• Dropdowns, radio buttons, and checkboxes
-• Configurable dropdown/radio options
-• Client-side validation
-• Save Draft
-• Submit & Continue
-• Mock complaint/form data for testing
-• Ready for ASP.NET Core API integration
-
-Project Structure
-
-src/
-├── components/
-│   └── eforms/
-│       ├── EFormBuilder.jsx
-│       ├── DynamicEForm.jsx
-│       ├── DynamicField.jsx
-│       ├── EFormPreview.jsx
-│       └── eform.css
-└── pages/
-    └── WorkflowStepFormDesigner.jsx
-
-1. EFormBuilder.jsx
-
-Used by the Unit Head to configure the form belonging to a workflow step.
-
-import React from "react";
-import "./eform.css";
-
-const FIELD_TYPES = [
-  { value: "text", label: "Text" },
-  { value: "textarea", label: "Text Area" },
-  { value: "number", label: "Number" },
-  { value: "date", label: "Date" },
-  { value: "datetime", label: "Date & Time" },
-  { value: "dropdown", label: "Dropdown" },
-  { value: "radio", label: "Radio Buttons" },
-  { value: "checkbox", label: "Checkbox" },
-];
-
-export default function EFormBuilder({ form, setForm }) {
-  const addField = () => {
-    const newField = {
-      id: crypto.randomUUID(),
-      label: "",
-      fieldKey: "",
-      type: "text",
-      placeholder: "",
-      required: false,
-      readOnly: false,
-      options: [],
-    };
-
-    setForm({ ...form, fields: [...form.fields, newField] });
-  };
-
-  const updateField = (id, property, value) => {
-    setForm({
-      ...form,
-      fields: form.fields.map((field) =>
-        field.id === id ? { ...field, [property]: value } : field
-      ),
-    });
-  };
-
-  const removeField = (id) => {
-    setForm({
-      ...form,
-      fields: form.fields.filter((field) => field.id !== id),
-    });
-  };
-
-  const addOption = (fieldId) => {
-    setForm({
-      ...form,
-      fields: form.fields.map((field) =>
-        field.id === fieldId
-          ? { ...field, options: [...field.options, ""] }
-          : field
-      ),
-    });
-  };
-
-  const updateOption = (fieldId, optionIndex, value) => {
-    setForm({
-      ...form,
-      fields: form.fields.map((field) => {
-        if (field.id !== fieldId) return field;
-        const options = [...field.options];
-        options[optionIndex] = value;
-        return { ...field, options };
-      }),
-    });
-  };
-
-  const removeOption = (fieldId, optionIndex) => {
-    setForm({
-      ...form,
-      fields: form.fields.map((field) =>
-        field.id === fieldId
-          ? {
-              ...field,
-              options: field.options.filter((_, i) => i !== optionIndex),
-            }
-          : field
-      ),
-    });
-  };
-
-  return (
-    <div className="eform-builder">
-      <div className="builder-heading">
-        <div>
-          <h2>E-Form Designer</h2>
-          <p>Configure fields for this workflow step.</p>
-        </div>
-
-        <button type="button" className="add-field-btn" onClick={addField}>
-          + Add Field
-        </button>
-      </div>
-
-      <div className="form-information">
-        <label>Form Name</label>
-        <input
-          value={form.name}
-          placeholder="Officer Investigation"
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-        />
-
-        <label>Description</label>
-        <textarea
-          value={form.description}
-          placeholder="Instructions for the user..."
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-        />
-      </div>
-
-      {form.fields.map((field, index) => (
-        <div className="field-card" key={field.id}>
-          <div className="field-card-header">
-            <strong>Field {index + 1}</strong>
-            <button type="button" onClick={() => removeField(field.id)}>
-              Remove
-            </button>
-          </div>
-
-          <div className="field-grid">
-            <div>
-              <label>Field Label</label>
-              <input
-                value={field.label}
-                placeholder="Investigation Comments"
-                onChange={(e) =>
-                  updateField(field.id, "label", e.target.value)
-                }
-              />
-            </div>
-
-            <div>
-              <label>Field Type</label>
-              <select
-                value={field.type}
-                onChange={(e) =>
-                  updateField(field.id, "type", e.target.value)
-                }
-              >
-                {FIELD_TYPES.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <label>Placeholder</label>
-          <input
-            value={field.placeholder}
-            onChange={(e) =>
-              updateField(field.id, "placeholder", e.target.value)
-            }
-          />
-
-          <div className="field-settings">
-            <label>
-              <input
-                type="checkbox"
-                checked={field.required}
-                onChange={(e) =>
-                  updateField(field.id, "required", e.target.checked)
-                }
-              />
-              Required
-            </label>
-
-            <label>
-              <input
-                type="checkbox"
-                checked={field.readOnly}
-                onChange={(e) =>
-                  updateField(field.id, "readOnly", e.target.checked)
-                }
-              />
-              Read Only
-            </label>
-          </div>
-
-          {(field.type === "dropdown" || field.type === "radio") && (
-            <div className="options-section">
-              <label>Options</label>
-
-              {field.options.map((option, optionIndex) => (
-                <div className="option-row" key={optionIndex}>
-                  <input
-                    value={option}
-                    onChange={(e) =>
-                      updateOption(field.id, optionIndex, e.target.value)
-                    }
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeOption(field.id, optionIndex)}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-
-              <button type="button" onClick={() => addOption(field.id)}>
-                + Add Option
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
+function read(obj, camel, pascal) {
+  return obj?.[camel] ?? obj?.[pascal]
 }
 
-2. DynamicField.jsx
-
-Reusable renderer that determines the correct React control from the field definition.
-
-import React from "react";
-
-export default function DynamicField({ field, value, onChange }) {
-  const change = (newValue) => onChange(field.id, newValue);
-
-  const commonProps = {
-    disabled: field.readOnly,
-    required: field.required,
-  };
-
-  const renderField = () => {
-    switch (field.type) {
-      case "textarea":
-        return (
-          <textarea
-            value={value || ""}
-            placeholder={field.placeholder}
-            onChange={(e) => change(e.target.value)}
-            {...commonProps}
-          />
-        );
-
-      case "number":
-        return (
-          <input
-            type="number"
-            value={value || ""}
-            onChange={(e) => change(e.target.value)}
-            {...commonProps}
-          />
-        );
-
-      case "date":
-        return (
-          <input
-            type="date"
-            value={value || ""}
-            onChange={(e) => change(e.target.value)}
-            {...commonProps}
-          />
-        );
-
-      case "datetime":
-        return (
-          <input
-            type="datetime-local"
-            value={value || ""}
-            onChange={(e) => change(e.target.value)}
-            {...commonProps}
-          />
-        );
-
-      case "dropdown":
-        return (
-          <select
-            value={value || ""}
-            onChange={(e) => change(e.target.value)}
-            {...commonProps}
-          >
-            <option value="">Select...</option>
-            {field.options.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        );
-
-      case "radio":
-        return (
-          <div className="radio-options">
-            {field.options.map((option) => (
-              <label key={option}>
-                <input
-                  type="radio"
-                  name={field.id}
-                  checked={value === option}
-                  disabled={field.readOnly}
-                  onChange={() => change(option)}
-                />
-                {option}
-              </label>
-            ))}
-          </div>
-        );
-
-      case "checkbox":
-        return (
-          <label>
-            <input
-              type="checkbox"
-              checked={Boolean(value)}
-              disabled={field.readOnly}
-              onChange={(e) => change(e.target.checked)}
-            />
-            Yes
-          </label>
-        );
-
-      default:
-        return (
-          <input
-            type="text"
-            value={value || ""}
-            placeholder={field.placeholder}
-            onChange={(e) => change(e.target.value)}
-            {...commonProps}
-          />
-        );
-    }
-  };
-
-  return (
-    <div className="dynamic-field">
-      <label className="field-label">
-        {field.label}
-        {field.required && <span className="required">*</span>}
-      </label>
-      {renderField()}
-    </div>
-  );
-}
-
-3. DynamicEForm.jsx
-
-Runtime form displayed to the Officer, Team Lead, or Unit Head.
-
-import React, { useState } from "react";
-import DynamicField from "./DynamicField";
-import "./eform.css";
-
-export default function DynamicEForm({
-  form,
-  complaint,
-  onSubmit,
-  onSaveDraft,
-}) {
-  const [values, setValues] = useState({});
-  const [errors, setErrors] = useState({});
-
-  const handleChange = (fieldId, value) => {
-    setValues((previous) => ({ ...previous, [fieldId]: value }));
-    setErrors((previous) => ({ ...previous, [fieldId]: null }));
-  };
-
-  const validate = () => {
-    const newErrors = {};
-
-    form.fields.forEach((field) => {
-      if (!field.required) return;
-      const value = values[field.id];
-
-      if (value === undefined || value === null || value === "") {
-        newErrors[field.id] = `${field.label} is required.`;
-      }
-    });
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const submit = (event) => {
-    event.preventDefault();
-    if (!validate()) return;
-
-    const submission = {
-      complaintId: complaint.id,
-      workflowStepId: complaint.currentWorkflowStepId,
-      formId: form.id,
-      responses: form.fields.map((field) => ({
-        fieldId: field.id,
-        fieldKey: field.fieldKey,
-        label: field.label,
-        value: values[field.id] ?? null,
-      })),
-    };
-
-    console.log("E-Form Submission:", submission);
-    onSubmit?.(submission);
-  };
-
-  const saveDraft = () => {
-    const draft = {
-      complaintId: complaint.id,
-      formId: form.id,
-      responses: values,
-    };
-
-    console.log("Saving draft:", draft);
-    onSaveDraft?.(draft);
-  };
-
-  return (
-    <form className="dynamic-eform" onSubmit={submit}>
-      <div className="complaint-summary">
-        <div>
-          <span>Complaint</span>
-          <strong>{complaint.referenceNumber}</strong>
-        </div>
-
-        <div>
-          <span>Status</span>
-          <strong>{complaint.status}</strong>
-        </div>
-
-        <div>
-          <span>Current Step</span>
-          <strong>{complaint.currentStepName}</strong>
-        </div>
-      </div>
-
-      <div className="eform-title">
-        <h2>{form.name}</h2>
-        {form.description && <p>{form.description}</p>}
-      </div>
-
-      {form.fields.map((field) => (
-        <div key={field.id}>
-          <DynamicField
-            field={field}
-            value={values[field.id]}
-            onChange={handleChange}
-          />
-
-          {errors[field.id] && (
-            <div className="validation-error">{errors[field.id]}</div>
-          )}
-        </div>
-      ))}
-
-      <div className="form-actions">
-        <button type="button" onClick={saveDraft}>
-          Save Draft
-        </button>
-
-        <button type="submit">
-          Submit & Continue
-        </button>
-      </div>
-    </form>
-  );
-}
-
-4. EFormPreview.jsx
-
-import React, { useState } from "react";
-import DynamicField from "./DynamicField";
-
-export default function EFormPreview({ form }) {
-  const [values, setValues] = useState({});
-
-  return (
-    <div className="form-preview">
-      <div className="preview-label">FORM PREVIEW</div>
-      <h2>{form.name || "Untitled E-Form"}</h2>
-      {form.description && <p>{form.description}</p>}
-
-      {form.fields.map((field) => (
-        <DynamicField
-          key={field.id}
-          field={field}
-          value={values[field.id]}
-          onChange={(fieldId, value) =>
-            setValues((previous) => ({
-              ...previous,
-              [fieldId]: value,
-            }))
-          }
-        />
-      ))}
-    </div>
-  );
-}
-
-5. WorkflowStepFormDesigner.jsx
-
-Combines the E-Form Builder and live preview.
-
-import React, { useState } from "react";
-import EFormBuilder from "../components/eforms/EFormBuilder";
-import EFormPreview from "../components/eforms/EFormPreview";
-import "../components/eforms/eform.css";
-
-export default function WorkflowStepFormDesigner() {
-  const [form, setForm] = useState({
-    id: null,
-    name: "Officer Investigation",
-    description: "Complete the investigation before continuing.",
-    fields: [],
-  });
-
-  const saveForm = () => {
-    console.log("FORM TO SAVE:", form);
-
-    // Future:
-    // await api.post("/eforms", form);
-  };
-
-  return (
-    <div className="designer-layout">
-      <div>
-        <EFormBuilder form={form} setForm={setForm} />
-      </div>
-
-      <div>
-        <EFormPreview form={form} />
-      </div>
-
-      <div className="designer-footer">
-        <button type="button" onClick={saveForm}>
-          Save E-Form
-        </button>
-      </div>
-    </div>
-  );
-}
-
-6. Basic Styling
-
-.eform-builder,
-.dynamic-eform,
-.form-preview {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 24px;
-}
-
-.builder-heading,
-.field-card-header,
-.form-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.field-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 18px;
-  margin: 16px 0;
-}
-
-.field-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-input,
-textarea,
-select {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin: 6px 0 12px;
-}
-
-.dynamic-field {
-  margin-bottom: 20px;
-}
-
-.field-label {
-  display: block;
-  font-weight: 600;
-  margin-bottom: 7px;
-}
-
-.required,
-.validation-error {
-  color: #b91c1c;
-}
-
-.required {
-  margin-left: 4px;
-}
-
-.complaint-summary {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  background: #f9fafb;
-  padding: 16px;
-  border-radius: 8px;
-  margin-bottom: 24px;
-}
-
-.complaint-summary span {
-  display: block;
-  font-size: 12px;
-  color: #6b7280;
-}
-
-.form-actions {
-  justify-content: flex-end;
-  gap: 12px;
-  border-top: 1px solid #e5e7eb;
-  padding-top: 20px;
-}
-
-.designer-layout {
-  display: grid;
-  grid-template-columns: minmax(500px, 1fr) minmax(400px, 0.8fr);
-  gap: 24px;
-}
-
-.designer-footer {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: flex-end;
-}
-
-@media (max-width: 1000px) {
-  .designer-layout,
-  .field-grid,
-  .complaint-summary {
-    grid-template-columns: 1fr;
+function parseConfig(value) {
+  if (!value) return {}
+
+  try {
+    return typeof value === 'string' ? JSON.parse(value) : value
+  } catch {
+    return {}
   }
 }
 
-Mock Data
+function createEmptyEForm() {
+  return {
+    id: crypto.randomUUID(),
+    name: '',
+    description: '',
+    fields: [],
+  }
+}
 
-Use this while the backend is not connected.
-
-const mockComplaint = {
-  id: 1024,
-  referenceNumber: "CMP-1024",
-  status: "In Progress",
-  currentWorkflowStepId: 30,
-  currentStepName: "Officer Investigation",
-};
-
-const mockForm = {
-  id: 10,
-  name: "Officer Investigation",
-  description: "Complete the investigation before continuing.",
-  fields: [
+function defaultNodes() {
+  return [
     {
-      id: "field-1",
-      fieldKey: "investigationComments",
-      label: "Investigation Comments",
-      type: "textarea",
-      placeholder: "Enter investigation details...",
-      required: true,
-      readOnly: false,
-      options: [],
+      id: 'start',
+      type: 'workflowNode',
+      position: { x: 80, y: 180 },
+      data: {
+        label: 'Start',
+        nodeType: 0,
+      },
     },
     {
-      id: "field-2",
-      fieldKey: "customerContacted",
-      label: "Customer Contacted?",
-      type: "dropdown",
-      required: true,
-      readOnly: false,
-      options: ["Yes", "No"],
+      id: 'end',
+      type: 'workflowNode',
+      position: { x: 620, y: 180 },
+      data: {
+        label: 'Resolved',
+        nodeType: 2,
+      },
     },
-    {
-      id: "field-3",
-      fieldKey: "investigationResult",
-      label: "Investigation Result",
-      type: "radio",
-      required: true,
-      readOnly: false,
-      options: [
-        "Valid Complaint",
-        "Invalid Complaint",
-        "Need More Information",
-      ],
+  ]
+}
+
+export default function WorkflowDesignerPage({
+  workflowId,
+  isNew,
+  navigate,
+}) {
+  const { roles } = useDevUser()
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes())
+  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+
+  const [selectedNodeId, setSelectedNodeId] = useState('')
+  const [selectedEdgeId, setSelectedEdgeId] = useState('')
+
+  const [departments, setDepartments] = useState([])
+  const [categories, setCategories] = useState([])
+
+  const [name, setName] = useState('New Complaint Workflow')
+  const [departmentId, setDepartmentId] = useState('')
+  const [categoryId, setCategoryId] = useState('')
+
+  const [definition, setDefinition] = useState(null)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(!isNew)
+
+  const selectedNode = useMemo(
+    () => nodes.find((x) => x.id === selectedNodeId),
+    [nodes, selectedNodeId]
+  )
+
+  const selectedEdge = useMemo(
+    () => edges.find((x) => x.id === selectedEdgeId),
+    [edges, selectedEdgeId]
+  )
+
+  const readOnly = definition && definition.status !== 0
+
+  // ---------------------------------------------------------
+  // LOAD DEPARTMENTS
+  // ---------------------------------------------------------
+
+  useEffect(() => {
+    api('/reference/departments')
+      .then((items) => {
+        setDepartments(items)
+
+        if (isNew && items.length) {
+          setDepartmentId(items[0].id)
+        }
+      })
+      .catch((err) => setError(err.message))
+  }, [isNew])
+
+  // ---------------------------------------------------------
+  // LOAD CATEGORIES
+  // ---------------------------------------------------------
+
+  useEffect(() => {
+    if (!departmentId) return
+
+    api(`/reference/categories?departmentId=${departmentId}`)
+      .then((items) => {
+        setCategories(items)
+
+        if (
+          isNew &&
+          !items.some((x) => x.id === categoryId)
+        ) {
+          setCategoryId(items[0]?.id || '')
+        }
+      })
+      .catch((err) => setError(err.message))
+  }, [departmentId])
+
+  // ---------------------------------------------------------
+  // LOAD EXISTING WORKFLOW
+  // ---------------------------------------------------------
+
+  useEffect(() => {
+    if (isNew || !workflowId) return
+
+    setLoading(true)
+
+    api(`/workflow-definitions/${workflowId}`)
+      .then((item) => {
+        setDefinition(item)
+        setName(item.name)
+        setDepartmentId(item.departmentId)
+        setCategoryId(item.categoryId)
+
+        const designer = JSON.parse(item.designerJson || '{}')
+
+        const sourceNodes =
+          read(designer, 'nodes', 'Nodes') || []
+
+        const sourceEdges =
+          read(designer, 'edges', 'Edges') || []
+
+        // -------------------------------------------------
+        // LOAD NODES
+        // -------------------------------------------------
+
+        const mappedNodes = sourceNodes.map((n) => {
+          const config = parseConfig(
+            read(n, 'configJson', 'ConfigJson')
+          )
+
+          return {
+            id: read(n, 'key', 'Key'),
+
+            type: 'workflowNode',
+
+            position: {
+              x: Number(read(n, 'x', 'X') || 0),
+              y: Number(read(n, 'y', 'Y') || 0),
+            },
+
+            data: {
+              label: read(n, 'name', 'Name'),
+
+              nodeType: Number(
+                read(n, 'type', 'Type')
+              ),
+
+              roleCode:
+                read(n, 'roleCode', 'RoleCode') || '',
+
+              slaHours:
+                read(n, 'slaHours', 'SlaHours') ?? '',
+
+              escalationRoleCode:
+                read(
+                  n,
+                  'escalationRoleCode',
+                  'EscalationRoleCode'
+                ) || '',
+
+              assignmentMode:
+                config.assignmentMode || 'queue',
+
+              // -------------------------------------------
+              // STEP 3:
+              // Restore the E-Form belonging to this node.
+              // -------------------------------------------
+
+              eForm:
+                config.eForm || {
+                  id: null,
+                  name: '',
+                  description: '',
+                  fields: [],
+                },
+            },
+          }
+        })
+
+        // -------------------------------------------------
+        // LOAD EDGES
+        // -------------------------------------------------
+
+        const mappedEdges = sourceEdges.map(
+          (e, index) => {
+            const source = read(
+              e,
+              'sourceKey',
+              'SourceKey'
+            )
+
+            const target = read(
+              e,
+              'targetKey',
+              'TargetKey'
+            )
+
+            const label =
+              read(e, 'label', 'Label') || ''
+
+            return {
+              id: `edge-${index}-${source}-${target}`,
+
+              source,
+              target,
+              label,
+
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+              },
+
+              data: {
+                outcomeKey:
+                  read(
+                    e,
+                    'outcomeKey',
+                    'OutcomeKey'
+                  ) || '',
+
+                label,
+              },
+            }
+          }
+        )
+
+        setNodes(mappedNodes)
+        setEdges(mappedEdges)
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [
+    workflowId,
+    isNew,
+    setNodes,
+    setEdges,
+  ])
+
+  // ---------------------------------------------------------
+  // CONNECT TWO NODES
+  // ---------------------------------------------------------
+
+  const onConnect = useCallback(
+    (params) => {
+      if (readOnly) return
+
+      setEdges((current) =>
+        addEdge(
+          {
+            ...params,
+
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+            },
+
+            data: {
+              outcomeKey: '',
+              label: '',
+            },
+          },
+
+          current
+        )
+      )
     },
-  ],
-};
 
-Runtime Example
+    [readOnly, setEdges]
+  )
 
-<DynamicEForm
-  form={mockForm}
-  complaint={mockComplaint}
-  onSubmit={(submission) => {
-    console.log("FINAL SUBMISSION", submission);
-  }}
-  onSaveDraft={(draft) => {
-    console.log("DRAFT", draft);
-  }}
-/>
+  // ---------------------------------------------------------
+  // ADD HUMAN TASK
+  // ---------------------------------------------------------
 
-Backend Integration
+  const addHumanNode = () => {
+    const id =
+      `step-${crypto.randomUUID().slice(0, 8)}`
 
-The current version is intentionally frontend-only.
+    setNodes((current) => [
+      ...current,
 
-When the ASP.NET Core backend is ready, replace console.log() with API requests.
+      {
+        id,
 
-await fetch("/api/eforms", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify(form),
-});
+        type: 'workflowNode',
 
-The intended full architecture is:
+        position: {
+          x: 320 + current.length * 25,
+          y: 140 + current.length * 18,
+        },
 
-React Workflow Designer
-        ↓
-E-Form Builder
-        ↓
-ASP.NET Core API
-        ↓
-SQL Server
+        data: {
+          label: 'New approval step',
 
-Complaint Runtime
-        ↓
-Current Workflow Step
-        ↓
-Load E-Form Definition
-        ↓
-Dynamic React Form
-        ↓
-Submit Responses
-        ↓
-ASP.NET Core API
-        ↓
-Database
-        ↓
-Advance Workflow
+          nodeType: 1,
 
-Future Enhancements
+          roleCode: 'TeamLead',
 
-• Drag-and-drop field ordering
-• Conditional fields
-• File uploads
-• Role-based field visibility
-• Field-level edit permissions
-• Configurable validation
-• Form versioning
-• Workflow branching based on E-Form responses
-• Submission history
-• Full audit trail
-• Reporting/export support
-• Dynamic backend integration
+          slaHours: 24,
 
-────────
+          escalationRoleCode: 'UnitHead',
+
+          assignmentMode: 'queue',
+
+          // ---------------------------------------------
+          // STEP 3:
+          // Every new Human Task receives its own form.
+          // ---------------------------------------------
+
+          eForm: createEmptyEForm(),
+        },
+      },
+    ])
+
+    setSelectedNodeId(id)
+    setSelectedEdgeId('')
+  }
+
+  // ---------------------------------------------------------
+  // ADD END NODE
+  // ---------------------------------------------------------
+
+  const addEndNode = () => {
+    const id =
+      `end-${crypto.randomUUID().slice(0, 8)}`
+
+    setNodes((current) => [
+      ...current,
+
+      {
+        id,
+
+        type: 'workflowNode',
+
+        position: {
+          x: 700,
+          y: 320,
+        },
+
+        data: {
+          label: 'Completed',
+          nodeType: 2,
+        },
+      },
+    ])
+
+    setSelectedNodeId(id)
+    setSelectedEdgeId('')
+  }
+
+  // ---------------------------------------------------------
+  // UPDATE SELECTED NODE
+  // ---------------------------------------------------------
+
+  const updateSelectedNode = (patch) => {
+    setNodes((current) =>
+      current.map((node) =>
+        node.id === selectedNodeId
+          ? {
+              ...node,
+
+              data: {
+                ...node.data,
+                ...patch,
+              },
+            }
+          : node
+      )
+    )
+  }
+
+  // ---------------------------------------------------------
+  // UPDATE SELECTED EDGE
+  // ---------------------------------------------------------
+
+  const updateSelectedEdge = (patch) => {
+    setEdges((current) =>
+      current.map((edge) =>
+        edge.id === selectedEdgeId
+          ? {
+              ...edge,
+
+              label:
+                patch.label ?? edge.label,
+
+              data: {
+                ...edge.data,
+                ...patch,
+              },
+            }
+          : edge
+      )
+    )
+  }
+
+  // ---------------------------------------------------------
+  // DELETE NODE / EDGE
+  // ---------------------------------------------------------
+
+  const deleteSelection = () => {
+    if (selectedNodeId) {
+      setNodes((current) =>
+        current.filter(
+          (x) => x.id !== selectedNodeId
+        )
+      )
+
+      setEdges((current) =>
+        current.filter(
+          (x) =>
+            x.source !== selectedNodeId &&
+            x.target !== selectedNodeId
+        )
+      )
+
+      setSelectedNodeId('')
+    } else if (selectedEdgeId) {
+      setEdges((current) =>
+        current.filter(
+          (x) => x.id !== selectedEdgeId
+        )
+      )
+
+      setSelectedEdgeId('')
+    }
+  }
+
+  // ---------------------------------------------------------
+  // BUILD API PAYLOAD
+  // ---------------------------------------------------------
+
+  const toPayload = () => ({
+    name: name.trim(),
+
+    departmentId,
+
+    categoryId,
+
+    nodes: nodes.map((node) => ({
+      key: node.id,
+
+      name:
+        node.data.label || node.id,
+
+      type:
+        Number(node.data.nodeType),
+
+      roleCode:
+        Number(node.data.nodeType) === 1
+          ? node.data.roleCode || null
+          : null,
+
+      slaHours:
+        Number(node.data.nodeType) === 1 &&
+        node.data.slaHours
+          ? Number(node.data.slaHours)
+          : null,
+
+      escalationRoleCode:
+        Number(node.data.nodeType) === 1
+          ? node.data.escalationRoleCode || null
+          : null,
+
+      x:
+        Math.round(
+          node.position.x * 100
+        ) / 100,
+
+      y:
+        Math.round(
+          node.position.y * 100
+        ) / 100,
+
+      // -------------------------------------------------
+      // STEP 3:
+      // Save BOTH assignment configuration and E-Form.
+      // -------------------------------------------------
+
+      configJson:
+        Number(node.data.nodeType) === 1
+          ? JSON.stringify({
+              assignmentMode:
+                node.data.assignmentMode ||
+                'queue',
+
+              eForm:
+                node.data.eForm || null,
+            })
+          : null,
+    })),
+
+    edges: edges.map((edge) => ({
+      sourceKey:
+        edge.source,
+
+      targetKey:
+        edge.target,
+
+      outcomeKey:
+        edge.data?.outcomeKey || null,
+
+      label:
+        edge.data?.label ||
+        edge.label ||
+        null,
+    })),
+  })
+
+  // ---------------------------------------------------------
+  // SAVE WORKFLOW
+  // ---------------------------------------------------------
+
+  const save = async () => {
+    if (readOnly) {
+      return definition
+    }
+
+    setSaving(true)
+    setError('')
+
+    try {
+      const payload = toPayload()
+
+      const saved = isNew
+        ? await api(
+            '/workflow-definitions',
+            {
+              method: 'POST',
+              body: payload,
+            }
+          )
+        : await api(
+            `/workflow-definitions/${workflowId}`,
+            {
+              method: 'PUT',
+              body: payload,
+            }
+          )
+
+      setDefinition(saved)
+
+      if (isNew) {
+        navigate(
+          `/workflows/${saved.id}/designer`
+        )
+      }
+
+      return saved
+    } catch (err) {
+      setError(err.message)
+      return null
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ---------------------------------------------------------
+  // PUBLISH WORKFLOW
+  // ---------------------------------------------------------
+
+  const publish = async () => {
+    const saved = await save()
+
+    if (!saved) return
+
+    setSaving(true)
+
+    try {
+      const published = await api(
+        `/workflow-definitions/${saved.id}/publish`,
+        {
+          method: 'POST',
+        }
+      )
+
+      setDefinition(published)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ---------------------------------------------------------
+  // SECURITY
+  // ---------------------------------------------------------
+
+  if (!roles.has('DeptAdmin')) {
+    return (
+      <section className="panel">
+        <ErrorBanner
+          message="Department admin access is required for the workflow designer."
+        />
+      </section>
+    )
+  }
+
+  // ---------------------------------------------------------
+  // PAGE
+  // ---------------------------------------------------------
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="VISUAL WORKFLOW DESIGNER"
+        title={
+          isNew
+            ? 'Create workflow'
+            : name
+        }
+        description={
+          definition
+            ? `Version ${definition.version} · ${workflowStatus[definition.status]}`
+            : 'Build the process by connecting role-based steps.'
+        }
+        actions={
+          <div className="page-actions">
+
+            <button
+              className="btn btn-secondary"
+              onClick={() =>
+                navigate('/workflows')
+              }
+            >
+              ← Library
+            </button>
+
+            {!readOnly && (
+              <button
+                className="btn btn-secondary"
+                disabled={saving}
+                onClick={save}
+              >
+                {saving
+                  ? 'Saving…'
+                  : 'Save draft'}
+              </button>
+            )}
+
+            {!readOnly && (
+              <button
+                className="btn btn-primary"
+                disabled={saving}
+                onClick={publish}
+              >
+                Publish
+              </button>
+            )}
+
+          </div>
+        }
+      />
+
+      <ErrorBanner message={error} />
+
+      {/* ------------------------------------------------ */}
+      {/* WORKFLOW CONFIGURATION */}
+      {/* ------------------------------------------------ */}
+
+      <section className="designer-config panel">
+
+        <label className="field compact">
+          <span>Workflow name</span>
+
+          <input
+            className="input"
+            value={name}
+            onChange={(e) =>
+              setName(e.target.value)
+            }
+            disabled={readOnly}
+          />
+        </label>
+
+        <label className="field compact">
+          <span>Department</span>
+
+          <select
+            className="input"
+            value={departmentId}
+            onChange={(e) =>
+              setDepartmentId(
+                e.target.value
+              )
+            }
+            disabled={
+              readOnly || !isNew
+            }
+          >
+            {departments.map((x) => (
+              <option
+                key={x.id}
+                value={x.id}
+              >
+                {x.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field compact">
+          <span>
+            Complaint category
+          </span>
+
+          <select
+            className="input"
+            value={categoryId}
+            onChange={(e) =>
+              setCategoryId(
+                e.target.value
+              )
+            }
+            disabled={
+              readOnly || !isNew
+            }
+          >
+            {categories.map((x) => (
+              <option
+                key={x.id}
+                value={x.id}
+              >
+                {x.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+      </section>
+
+      {/* ------------------------------------------------ */}
+      {/* DESIGNER */}
+      {/* ------------------------------------------------ */}
+
+      <div className="designer-shell">
+
+        {/* LEFT PALETTE */}
+
+        <aside className="designer-palette panel">
+
+          <div className="designer-section-title">
+            Steps
+          </div>
+
+          <button
+            className="palette-item"
+            onClick={addHumanNode}
+            disabled={readOnly}
+          >
+            <strong>
+              + Human task
+            </strong>
+
+            <span>
+              Role queue or assigned user
+            </span>
+          </button>
+
+          <button
+            className="palette-item"
+            onClick={addEndNode}
+            disabled={readOnly}
+          >
+            <strong>
+              + End state
+            </strong>
+
+            <span>
+              Resolved / rejected / closed
+            </span>
+          </button>
+
+        </aside>
+
+        {/* WORKFLOW CANVAS */}
+
+        <section className="designer-canvas panel">
+
+          {loading ? (
+            <div className="loading-block">
+              Loading workflow…
+            </div>
+          ) : (
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              onNodesChange={
+                readOnly
+                  ? undefined
+                  : onNodesChange
+              }
+              onEdgesChange={
+                readOnly
+                  ? undefined
+                  : onEdgesChange
+              }
+              onConnect={onConnect}
+
+              onNodeClick={(_, node) => {
+                setSelectedNodeId(
+                  node.id
+                )
+                setSelectedEdgeId('')
+              }}
+
+              onEdgeClick={(_, edge) => {
+                setSelectedEdgeId(
+                  edge.id
+                )
+                setSelectedNodeId('')
+              }}
+
+              onPaneClick={() => {
+                setSelectedNodeId('')
+                setSelectedEdgeId('')
+              }}
+
+              nodesDraggable={!readOnly}
+              nodesConnectable={!readOnly}
+              elementsSelectable
+              fitView
+              minZoom={0.25}
+              maxZoom={1.8}
+            >
+              <Background
+                gap={22}
+                size={1}
+              />
+
+              <Controls />
+
+              <MiniMap
+                zoomable
+                pannable
+              />
+
+            </ReactFlow>
+          )}
+
+        </section>
+
+        {/* ------------------------------------------------ */}
+        {/* RIGHT PROPERTIES PANEL */}
+        {/* ------------------------------------------------ */}
+
+        <aside className="designer-inspector panel">
+
+          <div className="designer-section-title">
+            Properties
+          </div>
+
+          {selectedNode ? (
+
+            <div className="inspector-form">
+
+              <div className="property-type">
+                NODE · {selectedNode.id}
+              </div>
+
+              <label className="field compact">
+                <span>Step name</span>
+
+                <input
+                  className="input"
+                  value={
+                    selectedNode.data
+                      .label || ''
+                  }
+                  onChange={(e) =>
+                    updateSelectedNode({
+                      label:
+                        e.target.value,
+                    })
+                  }
+                  disabled={readOnly}
+                />
+              </label>
+
+              <label className="field compact">
+                <span>Node type</span>
+
+                <select
+                  className="input"
+                  value={
+                    selectedNode.data
+                      .nodeType
+                  }
+                  onChange={(e) =>
+                    updateSelectedNode({
+                      nodeType:
+                        Number(
+                          e.target.value
+                        ),
+                    })
+                  }
+                  disabled={readOnly}
+                >
+                  <option value="0">
+                    Start
+                  </option>
+
+                  <option value="1">
+                    Human task
+                  </option>
+
+                  <option value="2">
+                    End
+                  </option>
+
+                </select>
+              </label>
+
+              {selectedNode.data.nodeType ===
+                workflowNodeType.HumanTask && (
+                <>
+                  <label className="field compact">
+                    <span>
+                      Assigned role
+                    </span>
+
+                    <input
+                      className="input"
+                      list="common-roles"
+                      value={
+                        selectedNode.data
+                          .roleCode || ''
+                      }
+                      onChange={(e) =>
+                        updateSelectedNode({
+                          roleCode:
+                            e.target.value,
+                        })
+                      }
+                      disabled={readOnly}
+                    />
+
+                    <datalist id="common-roles">
+                      {commonRoles.map(
+                        (role) => (
+                          <option
+                            value={role}
+                            key={role}
+                          />
+                        )
+                      )}
+                    </datalist>
+
+                  </label>
+
+                  <label className="field compact">
+                    <span>
+                      SLA hours
+                    </span>
+
+                    <input
+                      className="input"
+                      type="number"
+                      min="1"
+                      value={
+                        selectedNode.data
+                          .slaHours ?? ''
+                      }
+                      onChange={(e) =>
+                        updateSelectedNode({
+                          slaHours:
+                            e.target.value,
+                        })
+                      }
+                      disabled={readOnly}
+                    />
+                  </label>
+
+                  <label className="field compact">
+                    <span>
+                      Escalate to role
+                    </span>
+
+                    <input
+                      className="input"
+                      list="common-roles"
+                      value={
+                        selectedNode.data
+                          .escalationRoleCode ||
+                        ''
+                      }
+                      onChange={(e) =>
+                        updateSelectedNode({
+                          escalationRoleCode:
+                            e.target.value,
+                        })
+                      }
+                      disabled={readOnly}
+                    />
+                  </label>
+
+                  <label className="field compact">
+                    <span>
+                      Assignment mode
+                    </span>
+
+                    <select
+                      className="input"
+                      value={
+                        selectedNode.data
+                          .assignmentMode ||
+                        'queue'
+                      }
+                      onChange={(e) =>
+                        updateSelectedNode({
+                          assignmentMode:
+                            e.target.value,
+                        })
+                      }
+                      disabled={readOnly}
+                    >
+                      <option value="queue">
+                        Role queue
+                      </option>
+
+                      <option value="specific">
+                        Require specific user
+                      </option>
+
+                    </select>
+                  </label>
+
+                  {/* 
+                    STEP 4 WILL GO HERE.
+
+                    This is where we will put:
+
+                    <EFormBuilder ... />
+
+                    so the Unit Head / DeptAdmin can
+                    configure the form belonging to
+                    this particular Human Task.
+                  */}
+
+                </>
+              )}
+
+              {!readOnly && (
+                <button
+                  className="btn btn-danger-soft"
+                  onClick={deleteSelection}
+                >
+                  Delete node
+                </button>
+              )}
+
+            </div>
+
+          ) : selectedEdge ? (
+
+            <div className="inspector-form">
+
+              <div className="property-type">
+                TRANSITION
+              </div>
+
+              <label className="field compact">
+                <span>
+                  Button / edge label
+                </span>
+
+                <input
+                  className="input"
+                  value={
+                    selectedEdge.data
+                      ?.label ||
+                    selectedEdge.label ||
+                    ''
+                  }
+                  onChange={(e) =>
+                    updateSelectedEdge({
+                      label:
+                        e.target.value,
+                    })
+                  }
+                  disabled={readOnly}
+                  placeholder="e.g. Assign officer"
+                />
+              </label>
+
+              <label className="field compact">
+                <span>
+                  Outcome key
+                </span>
+
+                <input
+                  className="input"
+                  value={
+                    selectedEdge.data
+                      ?.outcomeKey || ''
+                  }
+                  onChange={(e) =>
+                    updateSelectedEdge({
+                      outcomeKey:
+                        e.target.value,
+                    })
+                  }
+                  disabled={readOnly}
+                  placeholder="e.g. assign, approve, reject"
+                />
+              </label>
+
+              <div className="edge-route">
+                {selectedEdge.source}
+                {' → '}
+                {selectedEdge.target}
+              </div>
+
+              {!readOnly && (
+                <button
+                  className="btn btn-danger-soft"
+                  onClick={deleteSelection}
+                >
+                  Delete transition
+                </button>
+              )}
+
+            </div>
+
+          ) : (
+
+            <div className="inspector-empty">
+              Select a node or connection
+              to edit its properties.
+            </div>
+
+          )}
+
+        </aside>
+
+      </div>
+    </>
+  )
+}
