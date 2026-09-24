@@ -318,3 +318,447 @@ npm run dev
     configuration.
 -   The assigned officer's recipient email should be fetched from the
     database rather than hardcoded.
+
+
+
+
+
+Workflow Task Attachments — Temporary Implementation Without Database Changes
+
+Purpose
+
+This README documents how to add attachments beside the existing
+workflow task comment field without adding an attachment table to the
+database yet.
+
+The existing WorkflowTasks.CompletionComment, dynamic fields, and
+workflow completion logic remain unchanged.
+
+Current Design
+
+For this temporary version:
+
+• No new database table.
+• No EF Core migration.
+• No change to the database diagram.
+• WorkflowTasks.CompletionComment continues to store the comment.
+• Multiple attachments can be selected.
+• Files are stored outside SQL Server.
+• Files are organized by WorkflowTaskId.
+• The existing JSON /complete endpoint stays unchanged.
+• A separate multipart endpoint uploads files.
+• Attachment metadata can be moved into a proper database table later.
+
+Files will be stored like this:
+
+BankingPlatform.Api/
+└── uploads/
+    └── workflow-tasks/
+        └── {WorkflowTaskId}/
+            ├── generated-file-name.pdf
+            └── generated-file-name.png
+
+1. Frontend — Attachment State
+
+File:
+
+frontend/src/pages/MyTasksPage.jsx
+
+Under the existing comment state:
+
+const [comment, setComment] = useState('')
+
+add:
+
+const [attachments, setAttachments] = useState([])
+
+Whenever a task is opened/reset and the code runs:
+
+setComment('')
+
+also add:
+
+setAttachments([])
+
+2. Frontend — Attachment Picker
+
+Place this directly under the existing Comment field and before the
+modal action buttons:
+
+<div className="field">
+  <span>Attachments</span>
+
+  <input
+    type="file"
+    multiple
+    onChange={(event) => {
+      const files = Array.from(event.target.files || [])
+      setAttachments(files)
+    }}
+  />
+
+  {attachments.length > 0 && (
+    <div className="attachment-list">
+      {attachments.map((file, index) => (
+        <div
+          className="attachment-item"
+          key={`${file.name}-${index}`}
+        >
+          <span>📎 {file.name}</span>
+
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => {
+              setAttachments((current) =>
+                current.filter((_, i) => i !== index)
+              )
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
+
+The modal will conceptually look like:
+
+Comment
+┌─────────────────────────────────────────────┐
+│ Add an optional action note...              │
+└─────────────────────────────────────────────┘
+
+Attachments
+[ Choose Files ]
+
+📎 customer-document.pdf        ×
+📎 evidence.png                 ×
+
+                              [ Forward ]
+
+3. Backend — Upload Endpoint
+
+File:
+
+src/BankingPlatform.Api/Controllers/WorkflowTasksController.cs
+
+Add this endpoint inside WorkflowTasksController:
+
+[HttpPost("{taskId:guid}/attachments")]
+[RequestSizeLimit(25_000_000)]
+public async Task<IActionResult> UploadAttachments(
+    Guid taskId,
+    [FromForm] List<IFormFile> files,
+    CancellationToken cancellationToken)
+{
+    if (files.Count == 0)
+        return BadRequest("No files were selected.");
+
+    var allowedExtensions = new HashSet<string>(
+        StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".docx",
+        ".xlsx"
+    };
+
+    var uploadFolder = Path.Combine(
+        Directory.GetCurrentDirectory(),
+        "uploads",
+        "workflow-tasks",
+        taskId.ToString());
+
+    Directory.CreateDirectory(uploadFolder);
+
+    foreach (var file in files)
+    {
+        if (file.Length == 0)
+            continue;
+
+        var extension = Path.GetExtension(file.FileName);
+
+        if (!allowedExtensions.Contains(extension))
+        {
+            return BadRequest(
+                $"File type '{extension}' is not allowed.");
+        }
+
+        var storedFileName =
+            $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
+
+        var filePath = Path.Combine(
+            uploadFolder,
+            storedFileName);
+
+        await using var stream =
+            new FileStream(filePath, FileMode.CreateNew);
+
+        await file.CopyToAsync(
+            stream,
+            cancellationToken);
+    }
+
+    return Ok();
+}
+
+If required, add:
+
+using Microsoft.AspNetCore.Http;
+
+The backend generates a unique physical filename instead of trusting the
+browser-provided filename. This reduces filename collisions and avoids
+using a user-supplied path/name directly on disk.
+
+4. Frontend — Upload Before Completing
+
+Keep the existing JSON completion payload and /complete endpoint
+unchanged.
+
+Immediately before the existing completion API call, add:
+
+if (attachments.length > 0) {
+  const formData = new FormData()
+
+  attachments.forEach((file) => {
+    formData.append('files', file)
+  })
+
+  const response = await fetch(
+    `/api/workflow-tasks/${selected.id}/attachments`,
+    {
+      method: 'POST',
+      body: formData,
+    }
+  )
+
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(
+      message || 'Failed to upload attachments.'
+    )
+  }
+}
+
+Then leave the existing completion request unchanged:
+
+await api(
+  `/workflow-tasks/${selected.id}/complete`,
+  {
+    method: 'POST',
+    body: payload,
+  }
+)
+
+Important
+
+Do not manually set:
+
+'Content-Type': 'multipart/form-data'
+
+The browser automatically creates the correct multipart boundary when
+using FormData.
+
+5. Reset Attachments After Completion
+
+Where successful task completion currently resets values:
+
+setComment('')
+setTaskForm(null)
+setFieldValues({})
+
+also add:
+
+setAttachments([])
+
+6. CSS
+
+Add to the stylesheet used by the task modal:
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.attachment-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+7. Runtime Flow
+
+1. Team Lead/Officer opens a workflow task.
+2. User enters a comment.
+3. User selects one or more files.
+4. Frontend uploads them to:
+
+POST /api/workflow-tasks/{taskId}/attachments
+
+5. Backend saves them under:
+
+uploads/workflow-tasks/{taskId}/
+
+6. If upload succeeds, the frontend calls the existing:
+
+POST /api/workflow-tasks/{taskId}/complete
+
+7. The comment continues to save in:
+
+WorkflowTasks.CompletionComment
+
+8. No attachment information is written to SQL Server in this temporary
+version.
+
+8. Example
+
+For task:
+
+19b47b0e-1111-2222-3333-444444444444
+
+the filesystem can contain:
+
+BankingPlatform.Api/
+└── uploads/
+    └── workflow-tasks/
+        └── 19b47b0e-1111-2222-3333-444444444444/
+            ├── 73ae521947de4b56a1ec0b09e20511ac.pdf
+            └── f94b16489ac8493391347fd487640bc2.png
+
+while SQL still stores:
+
+WorkflowTasks
+└── CompletionComment = "Customer documents attached."
+
+9. Allowed File Types and Size
+
+The sample implementation allows:
+
+.pdf
+.jpg
+.jpeg
+.png
+.docx
+.xlsx
+
+The endpoint currently has:
+
+[RequestSizeLimit(25_000_000)]
+
+This sets the request limit to approximately 25 MB. Both the file types
+and limit can be adjusted later.
+
+10. Previous-Step Attachments — Next Enhancement
+
+First verify this flow:
+
+Choose Files
+    ↓
+Upload
+    ↓
+Store under correct WorkflowTaskId
+    ↓
+Complete Task
+
+After that works, add GET/download endpoints so the next workflow
+participant can see previous-step attachments.
+
+Example:
+
+TEAM LEAD — Completed
+
+Comment:
+Customer provided requested documentation.
+
+Attachments:
+📄 Customer_Request.pdf     [View]
+📄 Email_Evidence.pdf       [View]
+
+
+OFFICER — Current Task
+
+Comment:
+[________________________________]
+
+Attachments:
+[ + Add Attachment ]
+
+                              [Submit]
+
+Previous-step attachments should be read-only. A user should only
+add/remove files belonging to their current task before submission.
+
+This can still be done without a new database table by reading the
+appropriate workflow-task folder.
+
+11. Future Production Design
+
+The filesystem-only approach is temporary. For production/auditing, add
+attachment metadata later while keeping the actual files outside SQL
+Server.
+
+A future table could be:
+
+WorkflowTaskAttachments
+────────────────────────────────
+Id
+WorkflowTaskId
+ComplaintId
+UploadedByUserId
+FileName
+StoredFileName
+ContentType
+FileSizeBytes
+StoragePath
+CreatedAtUtc
+UpdatedAtUtc
+
+That would make it possible to reliably track who uploaded each file,
+which complaint/task it belongs to, the original filename, upload time,
+file size/type, and storage location.
+
+This future table is not required for the current implementation.
+
+Final Summary
+
+Current design:
+
+WorkflowTasks.CompletionComment
+        │
+        └── SQL Server
+
+Attachments
+        │
+        └── uploads/workflow-tasks/{WorkflowTaskId}/
+
+For now:
+
+• Keep the database schema unchanged.
+• Do not create an attachment entity.
+• Do not add a DbSet.
+• Do not create an EF migration.
+• Do not modify the current ER diagram.
+• Add the attachment picker to MyTasksPage.jsx.
+• Add the separate upload endpoint to WorkflowTasksController.
+• Store files by WorkflowTaskId.
+• Keep /complete and dynamic-field logic unchanged.
+• Add previous-step attachment viewing/downloading afterward.
+
+
